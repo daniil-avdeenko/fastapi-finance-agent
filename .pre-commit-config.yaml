@@ -35,10 +35,12 @@ repos:
     rev: v1.14.0
     hooks:
       - id: mypy
-        additional_dependencies: [types-requests]
-        args: [--ignore-missing-imports]
+        additional_dependencies:
+          - pydantic>=2.9
+          - pydantic-settings>=2.6
+        args: [ --ignore-missing-imports ]
         files: ^app/
-        exclude: ^app/models/
+        exclude: ^migrations/
 
   - repo: https://gitcode.com/openlibing-test/gitleaks-hooks
     rev: c61eac420c41e18b1175b00eafec26343c010def
