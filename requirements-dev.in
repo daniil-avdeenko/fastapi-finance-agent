@@ -5,6 +5,7 @@ pytest
 pytest-asyncio
 pytest-cov
 respx
+testcontainers[postgres]
 
 # Quality
 ruff
