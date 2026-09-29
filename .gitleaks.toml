@@ -1,0 +1,19 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''\.venv/''',
+  '''venv/''',
+  '''\.git/''',
+  '''\.pytest_cache/''',
+  '''tests/.*\.py''',
+  '''^\.env$''',
+  '''\.env\..*$''',
+]
+regexes = [
+  '''ed25519\.Ed25519PrivateKey''',
+  '''ed448\.Ed448PrivateKey''',
+  '''is_mixin_scan''',
+]
