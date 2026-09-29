@@ -8,12 +8,17 @@ paths = [
   '''venv/''',
   '''\.git/''',
   '''\.pytest_cache/''',
+  '''\.mypy_cache/''',
+  '''\.ruff_cache/''',
   '''tests/.*\.py''',
+  '''credentials\.json''',
   '''^\.env$''',
+  '''\.env\.local$''',
   '''\.env\..*$''',
 ]
 regexes = [
   '''ed25519\.Ed25519PrivateKey''',
   '''ed448\.Ed448PrivateKey''',
   '''is_mixin_scan''',
+  '''pep_593_resolved_argument''',
 ]
