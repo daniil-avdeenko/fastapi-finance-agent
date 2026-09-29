@@ -1,0 +1,28 @@
+# Web
+fastapi
+uvicorn[standard]
+
+# Config
+pydantic-settings
+
+# Database
+SQLAlchemy[asyncio]
+asyncpg
+alembic
+
+# HTTP
+httpx
+
+# AI / LLM
+langgraph
+langchain-core
+langchain-openai
+
+# Telegram
+aiogram
+
+# Observability
+prometheus-client
+
+# Utils
+python-dotenv

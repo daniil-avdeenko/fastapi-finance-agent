@@ -1,0 +1,12 @@
+-r requirements.in
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+respx
+
+# Quality
+ruff
+mypy
+pre-commit
