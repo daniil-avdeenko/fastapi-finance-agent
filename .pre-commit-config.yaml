@@ -5,11 +5,14 @@ exclude: |
     \.venv/|
     venv/|
     \.idea/|
-    logs/|
-    __pycache__/|
     \.pytest_cache/|
+    \.mypy_cache/|
+    \.ruff_cache/|
+    __pycache__/|
     migrations/|
-    \.env$
+    \.env$|
+    \.env\..*|
+    credentials\.json
   )
 
 repos:
@@ -38,6 +41,8 @@ repos:
         additional_dependencies:
           - pydantic>=2.9
           - pydantic-settings>=2.6
+          - fastapi>=0.115
+          - sqlalchemy>=2.0
         args: [ --ignore-missing-imports ]
         files: ^app/
         exclude: ^migrations/

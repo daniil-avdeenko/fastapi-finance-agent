@@ -36,7 +36,7 @@ SessionLocal = async_sessionmaker(
 )
 
 
-class Base(DeclarativeBase):  # type: ignore[misc]
+class Base(DeclarativeBase):
     """Базовый класс для всех моделей."""
 
     pass
