@@ -18,8 +18,11 @@ from app.config import get_settings  # noqa: E402
 from app.db import Base  # noqa: E402
 import app.models  # noqa: E402, F401  # регистрирует модели в Base.metadata
 
-# URL из настроек — не из alembic.ini (там пусто)
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# URL может быть установлен извне (например, тестами через set_main_option).
+# Если пусто — берём из настроек. Это позволяет тестам подменять БД
+# на testcontainers, не трогая .env.
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 # Метаданные всех моделей — для autogenerate
 target_metadata = Base.metadata
