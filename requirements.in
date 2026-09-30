@@ -1,6 +1,7 @@
 # Web
 fastapi
 uvicorn[standard]
+uvloop; sys_platform != "win32"
 
 # Config
 pydantic-settings
