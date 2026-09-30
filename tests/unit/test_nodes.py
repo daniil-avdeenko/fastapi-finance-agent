@@ -113,3 +113,45 @@ async def test_format_answer_short_circuits_on_error(monkeypatch: pytest.MonkeyP
     result = await nodes.format_answer_node({"question": "q", "error": "timeout"})
 
     assert "timeout" in result["answer"]
+
+
+async def test_understand_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Падение LLM не роняет узел — пишем в state.error."""
+
+    class BrokenLLM:
+        async def chat(self, system: str, user: str) -> str:
+            raise RuntimeError("LLM down")
+
+    monkeypatch.setattr(nodes, "get_llm", lambda: BrokenLLM())
+
+    result = await nodes.understand_node({"question": "q", "chat_id": 1})
+
+    assert result["intent"] == "unknown"
+    assert "LLM down" in result["error"]
+
+
+async def test_format_answer_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenLLM:
+        async def chat(self, system: str, user: str) -> str:
+            raise RuntimeError("timeout")
+
+    monkeypatch.setattr(nodes, "get_llm", lambda: BrokenLLM())
+
+    result = await nodes.format_answer_node({"question": "q", "data": {}})
+
+    assert "timeout" in result["answer"]
+
+
+async def test_query_data_skips_when_error_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Если understand уже упал — dispatch не вызывается."""
+
+    async def boom(intent: str, params: dict[str, Any]) -> Any:
+        raise AssertionError("dispatch не должен вызываться при error")
+
+    monkeypatch.setattr(nodes, "dispatch", boom)
+
+    result = await nodes.query_data_node(
+        {"question": "q", "intent": "summary", "params": {}, "error": "LLM down"}
+    )
+
+    assert result == {"data": None}

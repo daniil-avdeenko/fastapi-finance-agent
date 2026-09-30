@@ -9,7 +9,7 @@
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -57,6 +57,13 @@ class Settings(BaseSettings):
         if isinstance(v, list | tuple):
             return [int(x) for x in v]
         return [int(x.strip()) for x in str(v).split(",") if x.strip().isdigit()]
+
+    @model_validator(mode="after")
+    def _require_openrouter_key(self) -> "Settings":
+        """Проверяет, что для openrouter задан ключ — падаем на старте, а не в рантайме."""
+        if self.llm_provider == "openrouter" and not self.llm_api_key:
+            raise ValueError("LLM_API_KEY обязателен при LLM_PROVIDER=openrouter")
+        return self
 
     @property
     def is_production(self) -> bool:
