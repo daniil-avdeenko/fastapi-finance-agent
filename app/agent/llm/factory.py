@@ -7,6 +7,7 @@
 
 from app.agent.llm.base import LLMProvider
 from app.agent.llm.mock import MockLLM
+from app.agent.llm.openrouter import OpenRouterLLM
 from app.config import get_settings
 
 
@@ -20,7 +21,6 @@ def get_llm() -> LLMProvider:
         return MockLLM()
 
     if settings.llm_provider == "openrouter":
-        # Реализация появится в коммите 5
-        raise NotImplementedError("OpenRouter provider — TODO")
+        return OpenRouterLLM()
 
     raise ValueError(f"Неизвестный провайдер: {settings.llm_provider}")

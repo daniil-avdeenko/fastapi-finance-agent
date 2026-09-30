@@ -85,14 +85,19 @@ def _extract_json(raw: str) -> dict[str, Any]:
 
 async def understand_node(state: AgentState) -> dict[str, Any]:
     """LLM разбирает вопрос → intent + params."""
-    llm = get_llm()
-    raw = await llm.chat(UNDERSTAND_SYSTEM_PROMPT, state["question"])
+    try:
+        llm = get_llm()
+        raw = await llm.chat(UNDERSTAND_SYSTEM_PROMPT, state["question"])
+    except Exception as exc:
+        # Ловим всё: любая ошибка LLM (сеть, 429, 5xx) не должна ронять граф.
+        # В state.error кладём текст, format_answer_node вернёт его пользователю.
+        logger.exception("understand_node failed")
+        return {"intent": "unknown", "params": {}, "error": f"LLM error: {exc}"}
 
     parsed = _extract_json(raw)
     intent = parsed.get("intent", "unknown")
     params = parsed.get("params", {})
 
-    # LLM может вернуть params как строку/список — гасим здесь, а не в tools.
     if not isinstance(params, dict):
         params = {}
 
@@ -102,6 +107,10 @@ async def understand_node(state: AgentState) -> dict[str, Any]:
 
 async def query_data_node(state: AgentState) -> dict[str, Any]:
     """Вызывает нужный tool по intent. Ошибки пишет в state.error."""
+    # Если understand уже упал — не дёргаем API, сохраняем исходную ошибку.
+    if state.get("error"):
+        return {"data": None}
+
     intent = state.get("intent", "unknown")
     params = state.get("params", {})
 
@@ -124,5 +133,11 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
         f"Вопрос пользователя: {state['question']}\n\n"
         f"Данные:\n{json.dumps(state.get('data'), ensure_ascii=False, indent=2)}"
     )
-    answer = await llm.chat(FORMAT_SYSTEM_PROMPT, user)
+
+    try:
+        answer = await llm.chat(FORMAT_SYSTEM_PROMPT, user)
+    except Exception as exc:
+        logger.exception("format_answer_node failed")
+        return {"answer": f"Ошибка генерации ответа: {exc}. Попробуйте позже."}
+
     return {"answer": answer}
