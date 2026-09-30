@@ -20,28 +20,32 @@ class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    # chat_id — Telegram ID пользователя (int64, влезает в BigInteger)
     chat_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
-
-    # Вопрос пользователя
     question: Mapped[str] = mapped_column(Text, nullable=False)
-
-    # Ответ агента
     answer: Mapped[str] = mapped_column(Text, nullable=False)
-
-    # Какой LLM-провайдер обработал (openrouter / yandex / mock)
     llm_provider: Mapped[str] = mapped_column(String(32), nullable=False)
-
-    # Время обработки в миллисекундах — для аналитики и дебага
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
         nullable=False,
         index=True,
     )
+
+    def __init__(
+        self,
+        *,
+        chat_id: int,
+        question: str,
+        answer: str,
+        llm_provider: str,
+        latency_ms: int | None = None,
+    ) -> None:
+        self.chat_id = chat_id
+        self.question = question
+        self.answer = answer
+        self.llm_provider = llm_provider
+        self.latency_ms = latency_ms
 
     def __repr__(self) -> str:
         preview = self.question[:40].replace("\n", " ")
