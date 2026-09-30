@@ -150,7 +150,9 @@ mypy-extensions==1.1.0
 nodeenv==1.11.0
     # via pre-commit
 openai==3.22.1
-    # via langchain-openai
+    # via
+    #   -r /work/requirements.in
+    #   langchain-openai
 opentelemetry-api==1.45.0
     # via fastapi
 orjson==3.12.0

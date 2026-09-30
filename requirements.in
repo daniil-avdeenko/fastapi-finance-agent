@@ -18,6 +18,7 @@ httpx
 langgraph
 langchain-core
 langchain-openai
+openai
 
 # Telegram
 aiogram

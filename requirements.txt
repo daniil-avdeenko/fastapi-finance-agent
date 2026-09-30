@@ -123,7 +123,9 @@ multidict==6.9.1
     #   aiohttp
     #   yarl
 openai==3.22.1
-    # via langchain-openai
+    # via
+    #   -r requirements.in
+    #   langchain-openai
 opentelemetry-api==1.45.0
     # via fastapi
 orjson==3.12.0
