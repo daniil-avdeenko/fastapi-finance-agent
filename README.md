@@ -48,12 +48,13 @@ Integration-тесты используют реальный Postgres через
 
 ## Управление зависимостями
 
-Lock-файлы генерируются через `pip-tools` **внутри Linux-контейнера** —
-иначе на Windows в lock попадает `pywin32`, который ломает CI.
+Lock-файлы (`requirements*.txt`) собираются `pip-tools` **внутри Linux-контейнера**.
+Версия `pip-tools` и Python зафиксированы в
+[`scripts/requirements-compile.Dockerfile`](scripts/requirements-compile.Dockerfile).
 
 ```bash
-.\scripts\compile-requirements.ps1     # Windows
-./scripts/compile-requirements.sh      # Linux / macOS
+./scripts/compile-requirements.sh      # Linux / macOS / Git Bash
+.\scripts\compile-requirements.ps1     # Windows PowerShell
 ```
 
 ## Лицензия
