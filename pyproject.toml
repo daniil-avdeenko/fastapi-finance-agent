@@ -36,10 +36,6 @@ ignore_missing_imports = true
 exclude = ["^migrations/", "^tests/"]
 
 [[tool.mypy.overrides]]
-module = "aiogram.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = "langgraph.*"
 ignore_missing_imports = true
 

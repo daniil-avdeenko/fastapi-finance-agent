@@ -20,9 +20,14 @@ def create_bot() -> Bot:
 
 
 def create_dispatcher() -> Dispatcher:
-    """Собирает Dispatcher и подключает роутеры."""
+    """Собирает Dispatcher, подключает middleware и роутеры."""
     from app.telegram import handlers
+    from app.telegram.middlewares.throttling import create_throttling_middleware
 
     dispatcher = Dispatcher(storage=MemoryStorage())
+
+    # middleware на все входящие сообщения, до роутеров.
+    dispatcher.message.middleware(create_throttling_middleware())
+
     dispatcher.include_router(handlers.router)
     return dispatcher
