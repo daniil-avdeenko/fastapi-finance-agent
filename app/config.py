@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
 
+    # Rate limit для Telegram (на user_id)
+    telegram_rate_limit: int = Field(default=10, ge=1, le=1000)
+    telegram_rate_window: int = Field(default=60, ge=1, le=3600)
+
     @model_validator(mode="after")
     def _require_openrouter_key(self) -> "Settings":
         """Проверяет, что для openrouter задан ключ — падаем на старте, а не в рантайме."""
