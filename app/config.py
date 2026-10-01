@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # LLM
     llm_provider: Literal["openrouter", "yandex", "mock"] = "openrouter"
     llm_api_key: str = ""
-    llm_model: str = "meta-llama/llama-3.1-8b-instruct"
+    llm_model: str = "google/gemini-3.1-flash-lite"
 
     # Telegram
     telegram_bot_token: str = ""

@@ -19,20 +19,24 @@ class OpenRouterLLM:
         api_key: str | None = None,
         model: str | None = None,
         timeout: float = 30.0,
+        max_tokens: int = 500,
         client: Any | None = None,
     ) -> None:
         settings = get_settings()
         self._api_key = api_key if api_key is not None else settings.llm_api_key
         self._model = model if model is not None else settings.llm_model
         self._timeout = timeout
+        self._max_tokens = max_tokens
         self._client = client
 
     @property
     def name(self) -> str:
         return "openrouter"
 
-    def _build_client(self) -> AsyncOpenAI:
-        """Создаёт AsyncOpenAI-клиент. Отдельный метод — для тестируемости."""
+    def _build_client(self) -> Any:
+        """
+        Создаёт клиент OpenRouter.
+        """
         return AsyncOpenAI(
             api_key=self._api_key,
             base_url=OPENROUTER_BASE_URL,
@@ -41,7 +45,7 @@ class OpenRouterLLM:
 
     async def chat(self, system: str, user: str) -> str:
         """Отправляет system + user, возвращает текст ответа."""
-        client = self._client if self._client is not None else self._build_client()
+        client: Any = self._client or self._build_client()
 
         response = await client.chat.completions.create(
             model=self._model,
@@ -49,7 +53,8 @@ class OpenRouterLLM:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            temperature=0.0,
+            max_tokens=self._max_tokens,
         )
 
-        content: str | None = response.choices[0].message.content
-        return content or ""
+        return response.choices[0].message.content or ""
