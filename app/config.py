@@ -7,10 +7,10 @@
 """
 
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic import Field, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -43,20 +43,6 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
-
-    # NoDecode — pydantic-settings не пытается парсить как JSON.
-    # Значение-строка "1,2,3" уходит в field_validator ниже.
-    telegram_allowed_chat_ids: Annotated[list[int], NoDecode] = Field(default_factory=list)
-
-    @field_validator("telegram_allowed_chat_ids", mode="before")
-    @classmethod
-    def parse_chat_ids(cls, v: object) -> list[int]:
-        """Парсит строку '1,2,3' в список int."""
-        if v is None or v == "":
-            return []
-        if isinstance(v, list | tuple):
-            return [int(x) for x in v]
-        return [int(x.strip()) for x in str(v).split(",") if x.strip().isdigit()]
 
     @model_validator(mode="after")
     def _require_openrouter_key(self) -> "Settings":
