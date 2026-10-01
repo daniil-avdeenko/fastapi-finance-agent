@@ -37,6 +37,22 @@ uvicorn app.main:app --reload
 Healthcheck: http://127.0.0.1:8000/health
 Swagger: http://127.0.0.1:8000/docs
 
+### Telegram-бот
+
+**Webhook (прод).** Установи `TELEGRAM_MODE=webhook` и `TELEGRAM_WEBHOOK_URL=https://...`.
+
+**Polling (локально).** Публичного URL нет, поэтому бот сам опрашивает Telegram:
+
+```bash
+# .env
+TELEGRAM_MODE=polling
+TELEGRAM_BOT_TOKEN=...
+```
+
+```bash
+python -m app.telegram.runner
+```
+
 ## Тесты
 
 ```bash
