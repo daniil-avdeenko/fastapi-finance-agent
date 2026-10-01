@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    telegram_webhook_url: str = ""
+    telegram_mode: Literal["webhook", "polling"] = "webhook"
 
     # Rate limit для Telegram (на user_id)
     telegram_rate_limit: int = Field(default=10, ge=1, le=1000)

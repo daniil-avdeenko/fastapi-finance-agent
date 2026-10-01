@@ -1,8 +1,5 @@
 """
 FastAPI-приложение: точка входа.
-
-Lifespan управляет startup/shutdown: закрывает engine при остановке.
-Эндпоинты подключаются через роутеры.
 """
 
 import logging
@@ -12,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.chat import router as chat_router
+from app.api.telegram import router as telegram_router
 from app.config import get_settings
 from app.db import engine
 
@@ -32,9 +30,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger = logging.getLogger(__name__)
     logger.info("Starting %s in %s mode", app.title, settings.app_env)
 
+    # Telegram: только в webhook-режиме и только если задан токен.
+    if settings.telegram_mode == "webhook" and settings.telegram_bot_token:
+        from app.telegram.bot import create_bot, create_dispatcher
+
+        bot = create_bot()
+        dispatcher = create_dispatcher()
+        app.state.bot = bot
+        app.state.dispatcher = dispatcher
+
+        if settings.telegram_webhook_url:
+            await bot.set_webhook(
+                url=settings.telegram_webhook_url,
+                secret_token=settings.telegram_webhook_secret or None,
+                drop_pending_updates=True,
+            )
+            logger.info("Telegram webhook set: %s", settings.telegram_webhook_url)
+
     yield
 
     # Shutdown
+    shutdown_bot = getattr(app.state, "bot", None)
+    if shutdown_bot is not None:
+        await shutdown_bot.session.close()
+        logger.info("Telegram bot session closed")
+
     await engine.dispose()
     logger.info("Shutdown complete")
 
@@ -51,6 +71,7 @@ app = FastAPI(
 )
 
 app.include_router(chat_router)
+app.include_router(telegram_router)
 
 
 @app.get("/health", tags=["system"])
