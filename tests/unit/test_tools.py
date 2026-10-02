@@ -157,3 +157,56 @@ async def test_dispatch_transactions_ignores_unknown_keys(base_url: str) -> None
 async def test_dispatch_unknown_intent_raises() -> None:
     with pytest.raises(MainAPIError, match="Неизвестный intent"):
         await tools.dispatch("weather")
+
+
+@respx.mock
+async def test_get_transactions_all_paginates(base_url: str) -> None:
+    """Итерирует пагинацию, пока не кончатся записи."""
+    page1 = [{"id": i, "amount": 100} for i in range(100)]
+    page2 = [{"id": 100, "amount": 200}]
+
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        side_effect=[
+            httpx.Response(200, json={"items": page1, "total": 101}),
+            httpx.Response(200, json={"items": page2, "total": 101}),
+        ]
+    )
+
+    items = await tools.get_transactions_all()
+
+    assert len(items) == 101
+
+
+@respx.mock
+async def test_aggregate_transactions_sums_by_project(base_url: str) -> None:
+    """Группирует и суммирует по (project_id, currency)."""
+    items = [
+        {"project_id": 1, "project_name": "A", "currency": "RUB", "amount": 100.0},
+        {"project_id": 1, "project_name": "A", "currency": "RUB", "amount": 200.0},
+        {"project_id": 2, "project_name": "B", "currency": "USD", "amount": 50.0},
+    ]
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        return_value=httpx.Response(200, json={"items": items})
+    )
+
+    result = await tools.aggregate_transactions(type="income")
+
+    assert result["total_transactions"] == 3
+    assert result["grand_total_by_currency"] == {"RUB": 300.0, "USD": 50.0}
+
+    by_pid = {p["project_id"]: p for p in result["by_project"]}
+    assert by_pid[1]["totals_by_currency"] == {"RUB": 300.0}
+    assert by_pid[2]["totals_by_currency"] == {"USD": 50.0}
+
+
+@respx.mock
+async def test_dispatch_routes_aggregate(base_url: str) -> None:
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+
+    result = await tools.dispatch(
+        "aggregate", {"type": "income", "date_from": "2026-05-01", "date_to": "2026-05-31"}
+    )
+
+    assert result["grand_total_by_currency"] == {}

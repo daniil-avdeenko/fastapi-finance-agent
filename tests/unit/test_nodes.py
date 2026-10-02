@@ -155,3 +155,15 @@ async def test_query_data_skips_when_error_present(monkeypatch: pytest.MonkeyPat
     )
 
     assert result == {"data": None}
+
+
+async def test_understand_prompt_contains_today(monkeypatch: pytest.MonkeyPatch) -> None:
+    """В system prompt подставляется текущая дата."""
+    llm = MockLLM(responses=['{"intent": "summary", "params": {}}'])
+    monkeypatch.setattr(nodes, "get_llm", lambda: llm)
+
+    await nodes.understand_node({"question": "q", "chat_id": 1})
+
+    system, _ = llm.calls[0]
+    assert "Сегодняшняя дата:" in system
+    assert "{today}" not in system  # placeholder заменён
