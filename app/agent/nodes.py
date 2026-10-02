@@ -7,6 +7,7 @@ LangGraph мерджит обновления в общий state. Поток: u
 
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from app.agent.llm.factory import get_llm
@@ -17,27 +18,58 @@ logger = logging.getLogger(__name__)
 
 
 UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросов к финансовой системе компании.
-
 Проанализируй вопрос пользователя и верни JSON:
-{
-  "intent": "<один из списка>",
-  "params": { ... }
-}
+{"intent": "<название>", "params": { ... }}
+
+Сегодняшняя дата: {today}
+Используй её для относительных дат: "за май" → 2026-05-01..2026-05-31,
+"за прошлый месяц" → предыдущий календарный месяц, "за квартал" → 3 месяца.
 
 Доступные intent:
-- "summary" — общая сводка по финансам (доходы, расходы, прибыль, рентабельность)
-- "projects" — список всех проектов
-- "project_detail" — детали одного проекта (обязательно params.project_id)
-- "transactions" — список транзакций, params могут содержать:
-    type ("income" | "expense"), project_id (int),
-    date_from / date_to ("YYYY-MM-DD"), page (int), per_page (int)
-- "currencies" — курсы валют ЦБ
-- "unknown" — вопрос не относится к финансам проектов
 
-Правила:
+- "summary" — общая сводка по финансам (доходы, расходы, прибыль, рентабельность).
+  params: {}.
+
+- "projects" — список всех проектов.
+  params: {}.
+
+- "project_detail" — детали одного проекта.
+  params: {"project_id": int} — обязателен.
+
+- "transactions" — список транзакций (без агрегации).
+  params: type ("income"|"expense"), project_id (int),
+  date_from, date_to ("YYYY-MM-DD"), page (int), per_page (int).
+
+- "aggregate" — сумма транзакций за период, сгруппированная по проектам.
+  Используй, если вопрос содержит: "суммарный", "итого", "просуммируй",
+  "сколько всего", "общая сумма", "всего за период".
+  params: type ("income"|"expense"), date_from, date_to ("YYYY-MM-DD"),
+  project_id (int, опционально).
+
+- "currencies" — курсы валют на текущую дату.
+  params: {}.
+
+- "unknown" — вопрос не относится к финансам проектов.
+
+ПРАВИЛА:
 - Отвечай ТОЛЬКО валидным JSON, без markdown-обёрток и пояснений.
-- Если параметр не указан в вопросе — не добавляй его в params.
-- Если вопрос непонятен или не о финансах — верни {"intent": "unknown", "params": {}}.
+- Если параметр не указан явно — не включай его в params.
+- Даты всегда в формате YYYY-MM-DD. Месяц — с 1-го по последний день включительно.
+- Если вопрос про сумму/итог — это "aggregate", не "transactions".
+- Если вопрос непонятен или не о финансах — {"intent": "unknown", "params": {}}.
+
+ПРИМЕРЫ:
+
+"summary" → {"intent": "summary", "params": {}}
+"Как дела с финансами?" → {"intent": "summary", "params": {}}
+"Сколько проектов?" → {"intent": "projects", "params": {}}
+"Детали проекта 3" → {"intent": "project_detail", "params": {"project_id": 3}}
+"Транзакции за март" → {"intent": "transactions", "params": {"date_from": "2026-03-01", "date_to": "2026-03-31"}}
+"Расходы проекта 1 за август" → {"intent": "transactions", "params": {"type": "expense", "project_id": 1, "date_from": "2026-08-01", "date_to": "2026-08-31"}}
+"Суммарный доход за май 2026" → {"intent": "aggregate", "params": {"type": "income", "date_from": "2026-05-01", "date_to": "2026-05-31"}}
+"Просуммируй расходы по всем проектам за август" → {"intent": "aggregate", "params": {"type": "expense", "date_from": "2026-08-01", "date_to": "2026-08-31"}}
+"Курсы валют" → {"intent": "currencies", "params": {}}
+"Какая погода?" → {"intent": "unknown", "params": {}}
 """
 
 
@@ -47,10 +79,13 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 
 ЖЁСТКИЕ ПРАВИЛА:
 - Используй ТОЛЬКО числа и текст из JSON. Ни одного числа, которого там нет.
-- Валюту указывай ровно так, как в JSON (руб./₽, не доллары, если в JSON рубли).
-- Не добавляй пояснений, рассуждений, извинений и предложений «помочь дальше».
+- Валюту указывай ровно так, как в JSON.
+- Если в JSON есть поля grand_total_by_currency или totals_by_currency —
+  пересказывай ИХ. Не складывай числа сам.
+- Если в JSON есть by_project — покажи разбивку по проектам.
+- Не добавляй пояснений, рассуждений, извинений, предложений «помочь дальше».
 - Не упоминай JSON, API, поля, ids, названия эндпоинтов.
-- Если данных для ответа нет — скажи «В данных нет информации» и остановись.
+- Если данных нет — скажи «В данных нет информации» и остановись.
 - Максимум 5 предложений или короткий список. Без вступлений.
 """
 
@@ -85,12 +120,13 @@ def _extract_json(raw: str) -> dict[str, Any]:
 
 async def understand_node(state: AgentState) -> dict[str, Any]:
     """LLM разбирает вопрос → intent + params."""
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    system = UNDERSTAND_SYSTEM_PROMPT.replace("{today}", today)
+
     try:
         llm = get_llm()
-        raw = await llm.chat(UNDERSTAND_SYSTEM_PROMPT, state["question"])
+        raw = await llm.chat(system, state["question"])
     except Exception as exc:
-        # Ловим всё: любая ошибка LLM (сеть, 429, 5xx) не должна ронять граф.
-        # В state.error кладём текст, format_answer_node вернёт его пользователю.
         logger.exception("understand_node failed")
         return {"intent": "unknown", "params": {}, "error": f"LLM error: {exc}"}
 
