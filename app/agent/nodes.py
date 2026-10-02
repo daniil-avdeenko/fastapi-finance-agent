@@ -7,6 +7,7 @@ LangGraph мерджит обновления в общий state. Поток: u
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -49,6 +50,11 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 - "currencies" — курсы валют на текущую дату.
   params: {}.
 
+- "profit" — прибыль (доходы минус расходы) по проектам за период.
+  Используй, если вопрос содержит: "прибыль", "profit", "маржа", "рентабельность",
+  "чистая прибыль", "выручка минус расходы".
+  params: date_from, date_to ("YYYY-MM-DD"), project_id (int, опционально).
+
 - "unknown" — вопрос не относится к финансам проектов.
 
 ПРАВИЛА:
@@ -69,6 +75,8 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 "Суммарный доход за май 2026" → {"intent": "aggregate", "params": {"type": "income", "date_from": "2026-05-01", "date_to": "2026-05-31"}}
 "Просуммируй расходы по всем проектам за август" → {"intent": "aggregate", "params": {"type": "expense", "date_from": "2026-08-01", "date_to": "2026-08-31"}}
 "Курсы валют" → {"intent": "currencies", "params": {}}
+"Прибыль за август" → {"intent": "profit", "params": {"date_from": "2026-08-01", "date_to": "2026-08-31"}}
+"Прибыль по проектам за май" → {"intent": "profit", "params": {"date_from": "2026-05-01", "date_to": "2026-05-31"}}
 "Какая погода?" → {"intent": "unknown", "params": {}}
 """
 
@@ -79,15 +87,52 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 
 ЖЁСТКИЕ ПРАВИЛА:
 - Используй ТОЛЬКО числа и текст из JSON. Ни одного числа, которого там нет.
-- Валюту указывай ровно так, как в JSON.
-- Если в JSON есть поля grand_total_by_currency или totals_by_currency —
-  пересказывай ИХ. Не складывай числа сам.
-- Если в JSON есть by_project — покажи разбивку по проектам.
+- Все суммы уже в рублях (поля *_rub). Не конвертируй, не добавляй валюту
+  кроме "RUB" или "₽".
+- Если в JSON есть grand_total_rub — это итоговая сумма.
+- Если есть by_project — покажи разбивку по проектам.
+- Если есть profit_rub — это прибыль. Если отрицательная — покажи как минус.
+- Если есть profitability_percent — это рентабельность в процентах,
+  указывай со знаком %.
+- Если есть данные, кратко указывай временной период (месяц, год), за который
+  приводишь финансовые отчёты.
 - Не добавляй пояснений, рассуждений, извинений, предложений «помочь дальше».
 - Не упоминай JSON, API, поля, ids, названия эндпоинтов.
 - Если данных нет — скажи «В данных нет информации» и остановись.
 - Максимум 5 предложений или короткий список. Без вступлений.
 """
+
+
+_NUMBER_GROUPING_RE = re.compile(r"(?<=\d)\s(?=\d{3}(?!\d))")
+_NUMBER_RE = re.compile(r"(?<![\d.])(\d{4,})([.,]\d+)?(?!\d)")
+
+
+def format_numbers(text: str) -> str:
+    """
+    Приводит числа в тексте к виду '1 234 567.89'.
+
+    - Убирает .0 / ,0 у целых (1234.0 → 1 234).
+    - Схлопывает уже расставленные пробелы перед форматированием
+      (14 450 744.0 → 14 450 744), чтобы работать с идемпотентным входом.
+    - Годы 1900–2100 не трогает.
+    """
+    text = _NUMBER_GROUPING_RE.sub("", text)
+
+    def repl(match: re.Match[str]) -> str:
+        int_part = match.group(1)
+        frac = match.group(2) or ""
+        value = int(int_part)
+
+        if not frac and 1900 <= value <= 2100:
+            return match.group(0)
+
+        if frac and float(frac.replace(",", ".")) == 0:
+            frac = ""
+
+        grouped = f"{value:,}".replace(",", " ")
+        return f"{grouped}{frac}"
+
+    return _NUMBER_RE.sub(repl, text)
 
 
 def _extract_json(raw: str) -> dict[str, Any]:
@@ -143,7 +188,6 @@ async def understand_node(state: AgentState) -> dict[str, Any]:
 
 async def query_data_node(state: AgentState) -> dict[str, Any]:
     """Вызывает нужный tool по intent. Ошибки пишет в state.error."""
-    # Если understand уже упал — не дёргаем API, сохраняем исходную ошибку.
     if state.get("error"):
         return {"data": None}
 
@@ -153,14 +197,16 @@ async def query_data_node(state: AgentState) -> dict[str, Any]:
     try:
         data = await dispatch(intent, params)
     except MainAPIError as exc:
-        logger.warning("query_data failed: %s", exc)
+        logger.warning("query_data: %s", exc)
         return {"data": None, "error": str(exc)}
+    except Exception as exc:
+        logger.exception("query_data: unexpected error")
+        return {"data": None, "error": f"Внутренняя ошибка: {exc}"}
 
     return {"data": data, "error": None}
 
 
 async def format_answer_node(state: AgentState) -> dict[str, Any]:
-    """LLM превращает JSON-данные в человеческий текст. При error — без LLM."""
     if state.get("error"):
         return {"answer": f"Не удалось получить данные: {state['error']}. Попробуйте позже."}
 
@@ -176,4 +222,4 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
         logger.exception("format_answer_node failed")
         return {"answer": f"Ошибка генерации ответа: {exc}. Попробуйте позже."}
 
-    return {"answer": answer}
+    return {"answer": format_numbers(answer)}

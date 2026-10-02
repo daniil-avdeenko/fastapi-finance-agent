@@ -167,3 +167,43 @@ async def test_understand_prompt_contains_today(monkeypatch: pytest.MonkeyPatch)
     system, _ = llm.calls[0]
     assert "Сегодняшняя дата:" in system
     assert "{today}" not in system  # placeholder заменён
+
+
+def test_format_numbers_inserts_separators() -> None:
+    assert nodes.format_numbers("1234567.89 руб") == "1 234 567.89 руб"
+    assert nodes.format_numbers("Доход 1000.50") == "Доход 1 000.50"
+
+
+def test_format_numbers_keeps_years() -> None:
+    assert nodes.format_numbers("за август 2026") == "за август 2026"
+    assert nodes.format_numbers("с 1999 по 2024") == "с 1999 по 2024"
+
+
+async def test_format_answer_formats_numbers(monkeypatch: pytest.MonkeyPatch) -> None:
+    llm = MockLLM(responses=["Доход составил 1234567.89 RUB"])
+    monkeypatch.setattr(nodes, "get_llm", lambda: llm)
+
+    result = await nodes.format_answer_node({"question": "q", "data": {}})
+
+    assert result["answer"] == "Доход составил 1 234 567.89 RUB"
+
+
+async def test_query_data_handles_unexpected_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def boom(intent: str, params: dict[str, Any]) -> Any:
+        raise ValueError("неожиданно")
+
+    monkeypatch.setattr(nodes, "dispatch", boom)
+
+    result = await nodes.query_data_node({"question": "q", "intent": "aggregate", "params": {}})
+
+    assert result["data"] is None
+    assert "Внутренняя ошибка" in result["error"]
+
+
+def test_format_numbers_removes_trailing_zero() -> None:
+    assert nodes.format_numbers("14 450 744.0 RUB") == "14 450 744 RUB"
+    assert nodes.format_numbers("1234567,00 руб") == "1 234 567 руб"
+
+
+def test_format_numbers_keeps_decimals() -> None:
+    assert nodes.format_numbers("1234.56") == "1 234.56"
