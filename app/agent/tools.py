@@ -75,42 +75,6 @@ async def get_currency_rates() -> Any:
     return await _get("/api/v1/currencies")
 
 
-async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
-    """
-    Роутер по intent → нужный tool.
-    """
-    params = params or {}
-
-    match intent:
-        case "summary":
-            return await get_summary()
-
-        case "projects":
-            return await list_projects()
-
-        case "project_detail":
-            project_id = params.get("project_id")
-            if project_id is None:
-                raise MainAPIError("project_detail: не указан project_id")
-            return await get_project_detail(int(project_id))
-
-        case "transactions":
-            allowed = {"type", "project_id", "date_from", "date_to", "page", "per_page"}
-            kwargs = {k: v for k, v in params.items() if k in allowed}
-            return await get_transactions(**kwargs)
-
-        case "currencies":
-            return await get_currency_rates()
-
-        case "aggregate":
-            allowed = {"type", "date_from", "date_to", "project_id"}
-            kwargs = {k: v for k, v in params.items() if k in allowed}
-            return await aggregate_transactions(**kwargs)
-
-        case _:
-            raise MainAPIError(f"Неизвестный intent: {intent!r}")
-
-
 def _extract_items(data: Any) -> list[dict[str, Any]]:
     """Достаёт список транзакций из ответа API, независимо от формы."""
     if isinstance(data, list):
@@ -158,6 +122,17 @@ async def get_transactions_all(
     return all_items
 
 
+def _to_rub(tx: dict[str, Any]) -> float:
+    """
+    Возвращает сумму транзакции в рублях.
+
+    API app 1 отдаёт `amount_rub` — уже сконвертировано по курсу на дату.
+    """
+    if "amount_rub" in tx and tx["amount_rub"] is not None:
+        return float(tx["amount_rub"])
+    return float(tx.get("amount", 0))
+
+
 async def aggregate_transactions(
     *,
     type: str | None = None,
@@ -167,9 +142,6 @@ async def aggregate_transactions(
 ) -> dict[str, Any]:
     """
     Агрегирует транзакции по проектам за период.
-
-    Суммы группируются по (project_id, currency). Итог — по каждой валюте
-    отдельно, без кросс-конвертации.
     """
     items = await get_transactions_all(
         type=type,
@@ -179,40 +151,137 @@ async def aggregate_transactions(
     )
 
     by_project: dict[int, dict[str, Any]] = {}
-    grand_total: dict[str, float] = {}
+    grand_total_rub = 0.0
 
     for tx in items:
         pid = tx.get("project_id")
         if pid is None:
             continue
 
-        project_name = tx.get("project_name") or (
-            tx.get("project", {}).get("name") if isinstance(tx.get("project"), dict) else None
-        )
-        currency = tx.get("currency", "RUB")
-        amount = float(tx.get("amount", 0))
+        amount_rub = _to_rub(tx)
 
         entry = by_project.setdefault(
             pid,
             {
                 "project_id": pid,
-                "project_name": project_name,
-                "totals_by_currency": {},
+                "project_name": tx.get("project_name"),
+                "total_rub": 0.0,
                 "count": 0,
             },
         )
-        entry["totals_by_currency"][currency] = round(
-            entry["totals_by_currency"].get(currency, 0.0) + amount, 2
-        )
+        entry["total_rub"] = round(entry["total_rub"] + amount_rub, 2)
         entry["count"] += 1
-
-        grand_total[currency] = round(grand_total.get(currency, 0.0) + amount, 2)
+        grand_total_rub = round(grand_total_rub + amount_rub, 2)
 
     return {
         "date_from": date_from,
         "date_to": date_to,
         "type": type,
         "total_transactions": len(items),
-        "grand_total_by_currency": grand_total,
+        "grand_total_rub": grand_total_rub,
         "by_project": list(by_project.values()),
     }
+
+
+async def aggregate_profit(
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    project_id: int | None = None,
+) -> dict[str, Any]:
+    """
+    Прибыль и рентабельность по проектам за период.
+    """
+    income = await aggregate_transactions(
+        type="income", date_from=date_from, date_to=date_to, project_id=project_id
+    )
+    expense = await aggregate_transactions(
+        type="expense", date_from=date_from, date_to=date_to, project_id=project_id
+    )
+
+    income_by_pid = {p["project_id"]: p for p in income["by_project"]}
+    expense_by_pid = {p["project_id"]: p for p in expense["by_project"]}
+
+    all_pids = set(income_by_pid) | set(expense_by_pid)
+
+    by_project: list[dict[str, Any]] = []
+    grand_income = 0.0
+    grand_expense = 0.0
+
+    for pid in sorted(all_pids):
+        inc_entry = income_by_pid.get(pid, {})
+        exp_entry = expense_by_pid.get(pid, {})
+
+        income_rub = inc_entry.get("total_rub", 0.0)
+        expense_rub = exp_entry.get("total_rub", 0.0)
+        profit_rub = round(income_rub - expense_rub, 2)
+
+        profitability = round(profit_rub / income_rub * 100, 2) if income_rub > 0 else None
+
+        by_project.append(
+            {
+                "project_id": pid,
+                "project_name": inc_entry.get("project_name") or exp_entry.get("project_name"),
+                "income_rub": income_rub,
+                "expense_rub": expense_rub,
+                "profit_rub": profit_rub,
+                "profitability_percent": profitability,
+            }
+        )
+
+        grand_income = round(grand_income + income_rub, 2)
+        grand_expense = round(grand_expense + expense_rub, 2)
+
+    grand_profit = round(grand_income - grand_expense, 2)
+    grand_profitability = round(grand_profit / grand_income * 100, 2) if grand_income > 0 else None
+
+    return {
+        "date_from": date_from,
+        "date_to": date_to,
+        "grand_income_rub": grand_income,
+        "grand_expense_rub": grand_expense,
+        "grand_profit_rub": grand_profit,
+        "grand_profitability_percent": grand_profitability,
+        "by_project": by_project,
+    }
+
+
+async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
+    """
+    Роутер по intent → нужный tool.
+    """
+    params = params or {}
+
+    match intent:
+        case "summary":
+            return await get_summary()
+
+        case "projects":
+            return await list_projects()
+
+        case "project_detail":
+            project_id = params.get("project_id")
+            if project_id is None:
+                raise MainAPIError("project_detail: не указан project_id")
+            return await get_project_detail(int(project_id))
+
+        case "transactions":
+            allowed = {"type", "project_id", "date_from", "date_to", "page", "per_page"}
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            return await get_transactions(**kwargs)
+
+        case "currencies":
+            return await get_currency_rates()
+
+        case "profit":
+            allowed = {"date_from", "date_to", "project_id"}
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            return await aggregate_profit(**kwargs)
+
+        case "aggregate":
+            allowed = {"type", "date_from", "date_to", "project_id"}
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            return await aggregate_transactions(**kwargs)
+
+        case _:
+            raise MainAPIError(f"Неизвестный intent: {intent!r}")
