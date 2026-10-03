@@ -468,3 +468,12 @@ async def test_format_answer_no_double_punctuation() -> None:
 
     assert ".." not in result["answer"]
     assert "Объект не найден." in result["answer"]
+
+
+def test_format_numbers_pads_percent_to_two_digits() -> None:
+    assert nodes.format_numbers("Рентабельность 37,9%") == "Рентабельность 37,90%"
+    assert nodes.format_numbers("Рентабельность 22,76%") == "Рентабельность 22,76%"
+
+
+def test_format_numbers_rounds_long_percent() -> None:
+    assert nodes.format_numbers("26,756%") == "26,76%"

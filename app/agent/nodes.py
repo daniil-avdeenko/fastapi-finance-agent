@@ -184,6 +184,23 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 """
 
 
+# 37,9% → 37,90%; 22,756% → 22,76%
+_PERCENT_RE = re.compile(r"(\d+)[.,](\d+)%")
+
+
+def _fix_percent(match: re.Match[str]) -> str:
+    whole = match.group(1)
+    frac = match.group(2)
+    if len(frac) == 1:
+        frac += "0"
+    elif len(frac) > 2:
+        # округляем до 2 знаков
+        value = round(float(f"{whole}.{frac}"), 2)
+        int_part, _, frac_part = f"{value:.2f}".partition(".")
+        return f"{int_part},{frac_part}%"
+    return f"{whole},{frac}%"
+
+
 _NUMBER_GROUPING_RE = re.compile(r"(?<=\d)\s(?=\d{3}(?!\d))")
 _NUMBER_RE = re.compile(r"(?<![\d.,])(\d{4,})([.,]\d+)?(?!\d)")
 
@@ -213,6 +230,7 @@ def format_numbers(text: str) -> str:
         grouped = f"{value:,}".replace(",", " ")
         return f"{grouped}{frac}"
 
+    text = _PERCENT_RE.sub(_fix_percent, text)
     return _NUMBER_RE.sub(repl, text)
 
 
