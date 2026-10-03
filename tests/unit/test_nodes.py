@@ -459,3 +459,12 @@ async def test_format_answer_count_intent(monkeypatch: pytest.MonkeyPatch) -> No
     assert "Транзакций: 10" in result["answer"]
     assert "проекту 1" in result["answer"]
     assert "расходных" in result["answer"]
+
+
+async def test_format_answer_no_double_punctuation() -> None:
+    result = await nodes.format_answer_node(
+        {"question": "q", "error": "Объект не найден.", "data": None}
+    )
+
+    assert ".." not in result["answer"]
+    assert "Объект не найден." in result["answer"]

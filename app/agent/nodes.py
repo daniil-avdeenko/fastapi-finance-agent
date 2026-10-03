@@ -406,8 +406,12 @@ async def query_data_node(state: AgentState) -> dict[str, Any]:
 
 async def format_answer_node(state: AgentState) -> dict[str, Any]:
     """LLM превращает JSON-данные в человеческий текст. При error — без LLM."""
-    if state.get("error"):
-        return {"answer": f"Не удалось получить данные: {state['error']}. Попробуйте позже."}
+    error = state.get("error")
+    if error:
+        msg = error.rstrip(".!?")
+        if "не найден" in msg.lower():
+            return {"answer": f"{msg}."}
+        return {"answer": f"Не удалось получить данные: {msg}. Попробуйте позже."}
 
     if state.get("intent") == "transactions":
         formatted = _format_transactions_plain(state.get("data"), state.get("params") or {})
