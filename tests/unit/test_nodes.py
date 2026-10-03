@@ -291,7 +291,7 @@ def test_format_transactions_plain_renders_items() -> None:
     assert result is not None
     assert "Доход: Консультационные услуги — 1 247 062.51 ₽" in result
     assert "Расход: Расходы на ИИ — 716 671.56 ₽" in result
-    assert "за август 2026" in result
+    assert "август 2026" in result
 
 
 def test_format_transactions_plain_empty_returns_none() -> None:
@@ -368,7 +368,7 @@ def test_format_transactions_plain_period_from_params_only() -> None:
     )
 
     assert result is not None
-    assert "за август 2026" in result
+    assert "август 2026" in result
 
 
 def test_format_transactions_plain_strips_trailing_zeros() -> None:
@@ -394,3 +394,29 @@ def test_format_transactions_plain_strips_trailing_zeros() -> None:
     assert "240 500 ₽" in result
     assert "240 500.00" not in result
     assert "1 247 062.51 ₽" in result  # значимая дробь не тронута
+
+
+def test_format_transactions_plain_single_month_period() -> None:
+    data = {
+        "items": [
+            {"type": "expense", "category_name": "Н", "amount_rub": 100.0, "project_name": "P"}
+        ]
+    }
+    result = nodes._format_transactions_plain(
+        data, {"date_from": "2026-08-01", "date_to": "2026-08-31"}
+    )
+    assert result is not None
+    assert "P, август 2026:" in result
+
+
+def test_format_transactions_plain_custom_range() -> None:
+    data = {
+        "items": [
+            {"type": "expense", "category_name": "Н", "amount_rub": 100.0, "project_name": "P"}
+        ]
+    }
+    result = nodes._format_transactions_plain(
+        data, {"date_from": "2026-08-15", "date_to": "2026-08-20"}
+    )
+    assert result is not None
+    assert "с 15.08.2026 по 20.08.2026" in result

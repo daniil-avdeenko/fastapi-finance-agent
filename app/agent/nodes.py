@@ -287,20 +287,23 @@ def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
         return None
 
     project_name = items[0].get("project_name") or ""
-    date_from = (params.get("date_from") or "")[:7]  # YYYY-MM
-    date_to = (params.get("date_to") or "")[:7]
+    period = _human_period(
+        params.get("date_from") or "",
+        params.get("date_to") or "",
+    )
 
     header_parts: list[str] = []
     if project_name:
         header_parts.append(project_name)
-    if date_from and date_to and date_from == date_to:
-        header_parts.append(_human_period(date_from))
-    header = (
-        ": ".join(header_parts)
-        if len(header_parts) == 2
-        else (header_parts[0] if header_parts else "Транзакции")
-    )
-    lines = [f"{header}:", ""]
+    if period:
+        header_parts.append(period)
+
+    if len(header_parts) == 2:
+        lines = [f"{header_parts[0]}, {header_parts[1]}:", ""]
+    elif header_parts:
+        lines = [f"{header_parts[0]}:", ""]
+    else:
+        lines = ["Транзакции:", ""]
 
     shown = items[:15]
     for tx in shown:
@@ -319,30 +322,65 @@ def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
     return format_numbers("\n".join(lines))
 
 
-def _human_period(yyyy_mm: str) -> str:
-    """'2026-08' → 'за август 2026'."""
-    month_names = [
-        "январь",
-        "февраль",
-        "март",
-        "апрель",
-        "май",
-        "июнь",
-        "июль",
-        "август",
-        "сентябрь",
-        "октябрь",
-        "ноябрь",
-        "декабрь",
-    ]
+_MONTH_NAMES = [
+    "январь",
+    "февраль",
+    "март",
+    "апрель",
+    "май",
+    "июнь",
+    "июль",
+    "август",
+    "сентябрь",
+    "октябрь",
+    "ноябрь",
+    "декабрь",
+]
+
+
+def _human_date(iso: str) -> str:
+    """'2026-08-15' → '15.08.2026'."""
     try:
-        year, month = yyyy_mm.split("-")
-        idx = int(month) - 1
-        if 0 <= idx < 12:
-            return f"за {month_names[idx]} {year}"
+        year, month, day = iso[:10].split("-")
+        return f"{day}.{month}.{year}"
     except (ValueError, AttributeError):
-        pass
-    return f"за {yyyy_mm}"
+        return iso
+
+
+def _human_period(date_from: str, date_to: str) -> str:
+    """
+    Период в человеческом виде.
+
+    Если диапазон покрывает месяц целиком (с 1-го по 28+ число) —
+    «август 2026». Иначе — «с 15.08.2026 по 20.08.2026».
+    """
+    if not date_from and not date_to:
+        return ""
+    if not date_from:
+        return f"по {_human_date(date_to)}"
+    if not date_to:
+        return f"с {_human_date(date_from)}"
+
+    ym_from = date_from[:7]
+    ym_to = date_to[:7]
+
+    is_full_month = (
+        ym_from == ym_to
+        and date_from[-2:] == "01"
+        and date_to[-2:].isdigit()
+        and int(date_to[-2:]) >= 28
+    )
+
+    if is_full_month:
+        try:
+            year, month = ym_from.split("-")
+            idx = int(month) - 1
+            if 0 <= idx < 12:
+                return f"{_MONTH_NAMES[idx]} {year}"
+        except (ValueError, AttributeError):
+            pass
+
+    return f"с {_human_date(date_from)} по {_human_date(date_to)}"
 
 
 async def format_answer_node(state: AgentState) -> dict[str, Any]:
