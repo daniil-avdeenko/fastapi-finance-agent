@@ -164,9 +164,25 @@ def _extract_json(raw: str) -> dict[str, Any]:
 
 
 async def understand_node(state: AgentState) -> dict[str, Any]:
-    """LLM разбирает вопрос → intent + params."""
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     system = UNDERSTAND_SYSTEM_PROMPT.replace("{today}", today)
+
+    history = state.get("history") or []
+    if history:
+        lines = ["ИСТОРИЯ ДИАЛОГА (последние вопросы):"]
+        for turn in history:
+            turn_intent = turn.get("intent") or "unknown"
+            turn_params = json.dumps(turn.get("params") or {}, ensure_ascii=False)
+            lines.append(f"- Q: {turn['question']}")
+            lines.append(f"  intent: {turn_intent}, params: {turn_params}")
+        lines.append("")
+        lines.append(
+            "Если новый вопрос ссылается на предыдущие («тот же», «такой же», "
+            "«а прибыль?», «а за май?», «а рентабельность?») — подставь intent "
+            "и params из подходящего хода истории. Если явно меняется только "
+            "дата или тип — измени только их, остальное бери из контекста."
+        )
+        system += "\n\n" + "\n".join(lines)
 
     try:
         llm = get_llm()
@@ -182,7 +198,6 @@ async def understand_node(state: AgentState) -> dict[str, Any]:
     if not isinstance(params, dict):
         params = {}
 
-    logger.info("understand: intent=%s params=%s", intent, params)
     return {"intent": intent, "params": params}
 
 

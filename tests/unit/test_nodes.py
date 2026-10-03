@@ -60,6 +60,45 @@ async def test_understand_ignores_non_dict_params(monkeypatch: pytest.MonkeyPatc
     assert result["params"] == {}
 
 
+async def test_understand_includes_history(monkeypatch):
+    llm = MockLLM(responses=['{"intent": "profit", "params": {}}'])
+    monkeypatch.setattr(nodes, "get_llm", lambda: llm)
+
+    await nodes.understand_node(
+        {
+            "question": "А рентабельность?",
+            "chat_id": 1,
+            "history": [
+                {
+                    "question": "Доходы за август",
+                    "intent": "aggregate",
+                    "params": {"type": "income", "date_from": "2026-08-01"},
+                },
+                {
+                    "question": "А прибыль?",
+                    "intent": "profit",
+                    "params": {"date_from": "2026-08-01", "date_to": "2026-08-31"},
+                },
+            ],
+        }
+    )
+
+    system, _ = llm.calls[0]
+    assert "ИСТОРИЯ ДИАЛОГА" in system
+    assert "А прибыль?" in system
+    assert "profit" in system
+
+
+async def test_understand_without_history_has_no_block(monkeypatch):
+    llm = MockLLM(responses=['{"intent": "summary", "params": {}}'])
+    monkeypatch.setattr(nodes, "get_llm", lambda: llm)
+
+    await nodes.understand_node({"question": "Сводка", "chat_id": 1, "history": []})
+
+    system, _ = llm.calls[0]
+    assert "ИСТОРИЯ ДИАЛОГА" not in system
+
+
 # ---------- query_data_node ----------
 
 
