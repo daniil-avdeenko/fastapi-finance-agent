@@ -8,7 +8,9 @@
 import logging
 import time
 from dataclasses import dataclass
+from typing import Any
 
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.graph import get_graph
@@ -16,6 +18,9 @@ from app.config import get_settings
 from app.models.message import Message
 
 logger = logging.getLogger(__name__)
+
+# Сколько последних вопросов подаём в промпт understand как контекст диалога.
+HISTORY_DEPTH = 5
 
 
 @dataclass(frozen=True)
@@ -25,6 +30,25 @@ class AgentResult:
     answer: str
     llm_provider: str
     latency_ms: int
+
+
+async def _load_history(session: AsyncSession, chat_id: int) -> list[dict[str, Any]]:
+    """
+    Возвращает последние HISTORY_DEPTH вопросов от chat_id — новые в конце.
+    """
+    stmt = (
+        select(Message.question, Message.intent, Message.params)
+        .where(Message.chat_id == chat_id)
+        .order_by(desc(Message.created_at), desc(Message.id))
+        .limit(HISTORY_DEPTH)
+    )
+    rows = (await session.execute(stmt)).all()
+
+    # Разворачиваем: старые вперёд, новые в конец — так удобнее читать в промпте.
+    return [
+        {"question": row.question, "intent": row.intent, "params": row.params}
+        for row in reversed(rows)
+    ]
 
 
 async def process_question(
@@ -41,8 +65,16 @@ async def process_question(
     """
     started = time.perf_counter()
 
+    history = await _load_history(session, chat_id)
+
     graph = get_graph()
-    result = await graph.ainvoke({"question": question, "chat_id": chat_id})
+    result = await graph.ainvoke(
+        {
+            "question": question,
+            "chat_id": chat_id,
+            "history": history,
+        }
+    )
 
     latency_ms = int((time.perf_counter() - started) * 1000)
 
@@ -59,13 +91,16 @@ async def process_question(
             answer=answer,
             llm_provider=llm_provider,
             latency_ms=latency_ms,
+            intent=result.get("intent"),
+            params=result.get("params"),
         )
     )
     await session.commit()
 
     logger.info(
-        "agent: chat_id=%s latency=%dms provider=%s",
+        "agent: chat_id=%s intent=%s latency=%dms provider=%s",
         chat_id,
+        result.get("intent"),
         latency_ms,
         llm_provider,
     )

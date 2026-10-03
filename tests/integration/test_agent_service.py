@@ -1,5 +1,6 @@
 """Тесты agent_service (реальный Postgres, фейковый граф)."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -62,3 +63,49 @@ async def test_process_question_raises_without_answer(
             chat_id=1,
             question="q",
         )
+
+
+async def test_process_question_passes_full_history(db_session, monkeypatch):
+    """Пять последних сообщений уходят в граф в порядке old→new."""
+
+    base = datetime.now(UTC)
+    for i, q in enumerate(["q1", "q2", "q3", "q4", "q5", "q6"]):
+        msg = Message(
+            chat_id=1,
+            question=q,
+            answer="a",
+            llm_provider="mock",
+            intent="summary",
+            params={"i": i},
+        )
+        msg.created_at = base + timedelta(seconds=i)
+        db_session.add(msg)
+    await db_session.commit()
+
+    captured = {}
+
+    class FakeGraph:
+        async def ainvoke(self, state):
+            captured.update(state)
+            return {"answer": "ok", "intent": "summary", "params": {}}
+
+    monkeypatch.setattr(agent_service, "get_graph", lambda: FakeGraph())
+    await agent_service.process_question(db_session, chat_id=1, question="новый")
+
+    # 5 последних: q2..q6 (q1 выпал), новые в конце
+    questions = [h["question"] for h in captured["history"]]
+    assert questions == ["q2", "q3", "q4", "q5", "q6"]
+
+
+async def test_process_question_empty_history(db_session, monkeypatch):
+    captured = {}
+
+    class FakeGraph:
+        async def ainvoke(self, state):
+            captured.update(state)
+            return {"answer": "ok", "intent": "summary", "params": {}}
+
+    monkeypatch.setattr(agent_service, "get_graph", lambda: FakeGraph())
+    await agent_service.process_question(db_session, chat_id=999, question="привет")
+
+    assert captured["history"] == []

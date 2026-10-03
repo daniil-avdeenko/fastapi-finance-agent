@@ -30,3 +30,6 @@ class AgentState(TypedDict, total=False):
 
     # Метаданные
     latency_ms: int | None  # сколько заняла обработка
+
+    # История последних N вопросов для контекста диалога.
+    history: list[dict[str, Any]]
