@@ -275,7 +275,7 @@ async def query_data_node(state: AgentState) -> dict[str, Any]:
     return {"data": data, "error": None}
 
 
-def _format_transactions_plain(data: Any) -> str | None:
+def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
     """
     Собирает ответ для intent='transactions' без LLM.
     """
@@ -287,10 +287,9 @@ def _format_transactions_plain(data: Any) -> str | None:
         return None
 
     project_name = items[0].get("project_name") or ""
-    date_from = (data.get("date_from") or "")[:7]  # YYYY-MM
-    date_to = (data.get("date_to") or "")[:7]
+    date_from = (params.get("date_from") or "")[:7]  # YYYY-MM
+    date_to = (params.get("date_to") or "")[:7]
 
-    # Заголовок: проект + период
     header_parts: list[str] = []
     if project_name:
         header_parts.append(project_name)
@@ -301,7 +300,7 @@ def _format_transactions_plain(data: Any) -> str | None:
         if len(header_parts) == 2
         else (header_parts[0] if header_parts else "Транзакции")
     )
-    lines = [f"{header}:" if header else "Транзакции:", ""]
+    lines = [f"{header}:", ""]
 
     shown = items[:15]
     for tx in shown:
@@ -352,7 +351,7 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
         return {"answer": f"Не удалось получить данные: {state['error']}. Попробуйте позже."}
 
     if state.get("intent") == "transactions":
-        formatted = _format_transactions_plain(state.get("data"))
+        formatted = _format_transactions_plain(state.get("data"), state.get("params") or {})
         if formatted is not None:
             return {"answer": formatted}
         return {"answer": "В данных нет информации."}

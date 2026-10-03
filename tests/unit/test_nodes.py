@@ -269,8 +269,6 @@ async def test_format_answer_short_circuits_on_unknown(
 def test_format_transactions_plain_renders_items() -> None:
     """Форматирует список транзакций без LLM, категории из своей записи."""
     data = {
-        "date_from": "2026-08-01",
-        "date_to": "2026-08-31",
         "items": [
             {
                 "type": "income",
@@ -286,8 +284,9 @@ def test_format_transactions_plain_renders_items() -> None:
             },
         ],
     }
+    params = {"date_from": "2026-08-01", "date_to": "2026-08-31"}
 
-    result = nodes._format_transactions_plain(data)
+    result = nodes._format_transactions_plain(data, params)
 
     assert result is not None
     assert "Доход: Консультационные услуги — 1 247 062.51 ₽" in result
@@ -296,7 +295,7 @@ def test_format_transactions_plain_renders_items() -> None:
 
 
 def test_format_transactions_plain_empty_returns_none() -> None:
-    assert nodes._format_transactions_plain({"items": []}) is None
+    assert nodes._format_transactions_plain({"items": []}, {}) is None
 
 
 def test_format_transactions_plain_caps_at_15() -> None:
@@ -311,7 +310,8 @@ def test_format_transactions_plain_caps_at_15() -> None:
         for i in range(20)
     ]
     result = nodes._format_transactions_plain(
-        {"items": items, "date_from": "2026-08-01", "date_to": "2026-08-31"}
+        {"items": items},
+        {"date_from": "2026-08-01", "date_to": "2026-08-31"},
     )
 
     assert result is not None
@@ -349,3 +349,23 @@ async def test_format_answer_transactions_uses_python_formatter(
     )
 
     assert "Расход: Налоги" in result["answer"]
+
+
+def test_format_transactions_plain_period_from_params_only() -> None:
+    """Период берётся из params, а не из data — API не возвращает его."""
+    data = {
+        "items": [
+            {
+                "type": "income",
+                "category_name": "X",
+                "amount_rub": 100.0,
+                "project_name": "Alpha",
+            }
+        ],
+    }
+    result = nodes._format_transactions_plain(
+        data, {"date_from": "2026-08-01", "date_to": "2026-08-31"}
+    )
+
+    assert result is not None
+    assert "за август 2026" in result
