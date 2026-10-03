@@ -321,3 +321,35 @@ def test_to_rub_falls_back_to_amount_without_amount_rub() -> None:
     """Если API не отдал amount_rub — используем amount как есть."""
     tx = {"amount": 100.5, "currency": "RUB"}
     assert tools._to_rub(tx) == 100.5
+
+
+@respx.mock
+async def test_get_summary_passes_dates(base_url: str) -> None:
+    route = respx.get(f"{base_url}/api/v1/summary").mock(
+        return_value=httpx.Response(200, json={"total_profit": 100})
+    )
+
+    await tools.get_summary(date_from="2026-08-01", date_to="2026-08-31")
+
+    params = route.calls.last.request.url.params
+    assert params["date_from"] == "2026-08-01"
+    assert params["date_to"] == "2026-08-31"
+
+
+@respx.mock
+async def test_get_summary_without_dates_sends_no_params(base_url: str) -> None:
+    route = respx.get(f"{base_url}/api/v1/summary").mock(return_value=httpx.Response(200, json={}))
+
+    await tools.get_summary()
+
+    assert not route.calls.last.request.url.params
+
+
+@respx.mock
+async def test_dispatch_summary_passes_dates(base_url: str) -> None:
+    route = respx.get(f"{base_url}/api/v1/summary").mock(return_value=httpx.Response(200, json={}))
+
+    await tools.dispatch("summary", {"date_from": "2026-08-01", "date_to": "2026-08-31"})
+
+    params = route.calls.last.request.url.params
+    assert params["date_from"] == "2026-08-01"

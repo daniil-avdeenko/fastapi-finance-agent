@@ -48,9 +48,14 @@ async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
         return response.json()
 
 
-async def get_summary() -> Any:
-    """Сводка по финансам: доходы, расходы, прибыль, рентабельность."""
-    return await _get("/api/v1/summary")
+async def get_summary(*, date_from: str | None = None, date_to: str | None = None) -> Any:
+    """Сводка по финансам за период (или за всё время)."""
+    params: dict[str, Any] = {}
+    if date_from:
+        params["date_from"] = date_from
+    if date_to:
+        params["date_to"] = date_to
+    return await _get("/api/v1/summary", params=params or None)
 
 
 async def list_projects() -> Any:
@@ -272,7 +277,9 @@ async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
 
     match intent:
         case "summary":
-            return await get_summary()
+            allowed = {"date_from", "date_to"}
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            return await get_summary(**kwargs)
 
         case "projects":
             return await list_projects()

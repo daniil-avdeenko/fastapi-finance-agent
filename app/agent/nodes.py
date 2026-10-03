@@ -28,8 +28,9 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 
 Доступные intent:
 
-- "summary" — общая сводка по финансам (доходы, расходы, прибыль, рентабельность).
-  params: {}.
+- "summary" — общая сводка по финансам за период (доходы, расходы,
+  прибыль, рентабельность).
+  params: date_from, date_to ("YYYY-MM-DD", опционально).
 
 - "projects" — список всех проектов.
   params: {}.
@@ -97,7 +98,7 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 
 ПРИМЕРЫ:
 
-"summary" → {"intent": "summary", "params": {}}
+"Сводка за август" → {"intent": "summary", "params": {"date_from": "2026-08-01", "date_to": "2026-08-31"}}
 "Как дела с финансами?" → {"intent": "summary", "params": {}}
 "Сколько проектов?" → {"intent": "projects", "params": {}}
 "Детали проекта 3" → {"intent": "project_detail", "params": {"project_id": 3}}
