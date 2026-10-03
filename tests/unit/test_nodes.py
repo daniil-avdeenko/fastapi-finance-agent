@@ -369,3 +369,28 @@ def test_format_transactions_plain_period_from_params_only() -> None:
 
     assert result is not None
     assert "за август 2026" in result
+
+
+def test_format_transactions_plain_strips_trailing_zeros() -> None:
+    data = {
+        "items": [
+            {
+                "type": "expense",
+                "category_name": "Налоги",
+                "amount_rub": 240_500.0,
+                "project_name": "P",
+            },
+            {
+                "type": "income",
+                "category_name": "Услуги",
+                "amount_rub": 1_247_062.51,
+                "project_name": "P",
+            },
+        ]
+    }
+    result = nodes._format_transactions_plain(data, {})
+
+    assert result is not None
+    assert "240 500 ₽" in result
+    assert "240 500.00" not in result
+    assert "1 247 062.51 ₽" in result  # значимая дробь не тронута

@@ -316,7 +316,7 @@ def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
         lines.append("")
         lines.append(f"и ещё {len(items) - len(shown)} записей.")
 
-    return "\n".join(lines)
+    return format_numbers("\n".join(lines))
 
 
 def _human_period(yyyy_mm: str) -> str:
