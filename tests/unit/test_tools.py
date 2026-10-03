@@ -280,3 +280,9 @@ async def test_aggregate_profit_handles_zero_income(base_url: str) -> None:
     result = await tools.aggregate_profit()
 
     assert result["grand_profitability_percent"] is None
+
+
+def test_to_rub_falls_back_to_amount_without_amount_rub() -> None:
+    """Если API не отдал amount_rub — используем amount как есть."""
+    tx = {"amount": 100.5, "currency": "RUB"}
+    assert tools._to_rub(tx) == 100.5
