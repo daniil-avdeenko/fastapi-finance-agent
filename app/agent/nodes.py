@@ -159,7 +159,7 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 
 
 _NUMBER_GROUPING_RE = re.compile(r"(?<=\d)\s(?=\d{3}(?!\d))")
-_NUMBER_RE = re.compile(r"(?<![\d.])(\d{4,})([.,]\d+)?(?!\d)")
+_NUMBER_RE = re.compile(r"(?<![\d.,])(\d{4,})([.,]\d+)?(?!\d)")
 
 
 def format_numbers(text: str) -> str:

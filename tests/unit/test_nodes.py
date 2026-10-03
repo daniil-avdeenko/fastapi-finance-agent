@@ -433,3 +433,9 @@ def test_format_transactions_plain_custom_range() -> None:
     )
     assert result is not None
     assert "с 15.08.2026 по 20.08.2026" in result
+
+
+def test_format_numbers_ignores_decimal_part() -> None:
+    """94,3201 не должно превращаться в 94,3 201."""
+    assert nodes.format_numbers("94,3201 ₽") == "94,3201 ₽"
+    assert nodes.format_numbers("83.4839 ₽") == "83.4839 ₽"
