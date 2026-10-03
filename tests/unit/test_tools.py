@@ -353,3 +353,15 @@ async def test_dispatch_summary_passes_dates(base_url: str) -> None:
 
     params = route.calls.last.request.url.params
     assert params["date_from"] == "2026-08-01"
+
+
+@respx.mock
+async def test_count_transactions_returns_total(base_url: str) -> None:
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        return_value=httpx.Response(200, json={"total": 10, "items": []})
+    )
+
+    result = await tools.count_transactions(project_id=1)
+
+    assert result["count"] == 10
+    assert result["project_id"] == 1

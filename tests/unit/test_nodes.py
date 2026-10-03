@@ -439,3 +439,23 @@ def test_format_numbers_ignores_decimal_part() -> None:
     """94,3201 не должно превращаться в 94,3 201."""
     assert nodes.format_numbers("94,3201 ₽") == "94,3201 ₽"
     assert nodes.format_numbers("83.4839 ₽") == "83.4839 ₽"
+
+
+async def test_format_answer_count_intent(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = await nodes.format_answer_node(
+        {
+            "question": "Сколько транзакций?",
+            "intent": "count",
+            "data": {
+                "count": 10,
+                "project_id": 1,
+                "date_from": "2026-08-01",
+                "date_to": "2026-08-31",
+                "type": "expense",
+            },
+        }
+    )
+
+    assert "Транзакций: 10" in result["answer"]
+    assert "проекту 1" in result["answer"]
+    assert "расходных" in result["answer"]

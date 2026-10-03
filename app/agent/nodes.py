@@ -42,6 +42,10 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
   params: type ("income"|"expense"), project_id (int),
   date_from, date_to ("YYYY-MM-DD"), page (int), per_page (int).
 
+- "count" — количество транзакций (не сумма).
+  Используй для вопросов «сколько транзакций», «сколько операций».
+  params: type, project_id, date_from, date_to ("YYYY-MM-DD").
+
 - "aggregate" — сумма транзакций за период, сгруппированная по проектам.
   Используй, если вопрос содержит: "суммарный", "итого", "просуммируй",
   "сколько всего", "общая сумма", "всего за период".
@@ -110,6 +114,7 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 "Прибыль за август" → {"intent": "profit", "params": {"date_from": "2026-08-01", "date_to": "2026-08-31"}}
 "Прибыль по проектам за май" → {"intent": "profit", "params": {"date_from": "2026-05-01", "date_to": "2026-05-31"}}
 "Какая погода?" → {"intent": "unknown", "params": {}}
+"Сколько транзакций в августе по проекту 1" → {"intent": "count", "params": {"project_id": 1, "date_from": "2026-08-01", "date_to": "2026-08-31"}}
 """
 
 
@@ -400,6 +405,22 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
         if formatted is not None:
             return {"answer": formatted}
         return {"answer": "В данных нет информации."}
+
+    if state.get("intent") == "count":
+        data = state.get("data") or {}
+        count = data.get("count", 0)
+        parts = []
+        if data.get("project_id"):
+            parts.append(f"по проекту {data['project_id']}")
+        if data.get("type") == "income":
+            parts.append("доходных")
+        elif data.get("type") == "expense":
+            parts.append("расходных")
+        period = _human_period(data.get("date_from") or "", data.get("date_to") or "")
+        if period:
+            parts.append(period)
+        suffix = f" ({', '.join(parts)})" if parts else ""
+        return {"answer": f"Транзакций: {count}{suffix}."}
 
     # Явный «не понял» вместо попытки пересказать пустые данные.
     if state.get("intent") == "unknown":

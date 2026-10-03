@@ -269,6 +269,35 @@ async def aggregate_profit(
     }
 
 
+async def count_transactions(
+    *,
+    type: str | None = None,
+    project_id: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Считает транзакции по фильтрам, без выборки записей."""
+    params: dict[str, Any] = {"page": 1, "per_page": 1}
+    for key, value in (
+        ("type", type),
+        ("project_id", project_id),
+        ("date_from", date_from),
+        ("date_to", date_to),
+    ):
+        if value is not None:
+            params[key] = value
+
+    data = await _get("/api/v1/transactions", params=params)
+    total = data.get("total") if isinstance(data, dict) else None
+    return {
+        "count": int(total) if total is not None else 0,
+        "project_id": project_id,
+        "date_from": date_from,
+        "date_to": date_to,
+        "type": type,
+    }
+
+
 async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
     """
     Роутер по intent → нужный tool.
@@ -307,6 +336,11 @@ async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
             allowed = {"type", "date_from", "date_to", "project_id"}
             kwargs = {k: v for k, v in params.items() if k in allowed}
             return await aggregate_transactions(**kwargs)
+
+        case "count":
+            allowed = {"type", "project_id", "date_from", "date_to"}
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            return await count_transactions(**kwargs)
 
         case _:
             raise MainAPIError(f"Неизвестный intent: {intent!r}")
