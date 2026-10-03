@@ -222,8 +222,21 @@ async def query_data_node(state: AgentState) -> dict[str, Any]:
 
 
 async def format_answer_node(state: AgentState) -> dict[str, Any]:
+    """LLM превращает JSON-данные в человеческий текст. При error — без LLM."""
     if state.get("error"):
         return {"answer": f"Не удалось получить данные: {state['error']}. Попробуйте позже."}
+
+    # Явный «не понял» вместо попытки пересказать пустые данные.
+    if state.get("intent") == "unknown":
+        return {
+            "answer": (
+                "Не понял вопрос. Я умею: сводка по финансам, список проектов, "
+                "детали проекта, транзакции с фильтрами, суммы за период, "
+                "прибыль и рентабельность, курсы валют.\n\n"
+                "Например: «Прибыль по проектам за август» или "
+                "«Суммарный доход за май»."
+            )
+        }
 
     llm = get_llm()
     user = (

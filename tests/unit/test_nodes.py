@@ -246,3 +246,21 @@ def test_format_numbers_removes_trailing_zero() -> None:
 
 def test_format_numbers_keeps_decimals() -> None:
     assert nodes.format_numbers("1234.56") == "1 234.56"
+
+
+async def test_format_answer_short_circuits_on_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unknown intent → готовый текст, без вызова LLM."""
+
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться при unknown")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {"question": "погода?", "intent": "unknown", "data": None}
+    )
+
+    assert "Не понял вопрос" in result["answer"]
+    assert "Прибыль" in result["answer"]
