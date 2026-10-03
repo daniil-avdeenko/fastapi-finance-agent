@@ -6,17 +6,32 @@
 Telegram AI-агент для системы [project-finance](https://github.com/daniil-avdeenko/project-finance).
 Отвечает на вопросы о проектах и финансах на естественном языке.
 
-**Статус:** в активной разработке. Сейчас готов скелет приложения
-(FastAPI + PostgreSQL + Alembic). LangGraph-агент и Telegram-бот — в следующих PR.
+Агент не ходит в БД основного проекта напрямую — только через публичный
+REST API `/api/v1/*`. Развязка сервисов, отказ от shared-credentials,
+независимый деплой.
+
+## Что умеет
+
+- Сводка по финансам — доходы, расходы, прибыль, рентабельность.
+- Список проектов и детали по каждому.
+- Транзакции с фильтрами: тип, проект, даты.
+- Агрегация: суммарный доход/расход за период по проектам.
+- Прибыль и рентабельность за период, в рублях.
+- Курсы валют ЦБ.
+
+Примеры: `Сводка по финансам`, `Прибыль по проектам за август`,
+`Суммарный доход за май`, `Курсы валют`.
 
 ## Стек
 
 - **FastAPI** + uvicorn + Pydantic v2
 - **PostgreSQL 16** + SQLAlchemy 2.0 (async) + asyncpg + Alembic
-- **LangGraph** + LangChain + OpenRouter (в разработке)
-- **aiogram 3** (в разработке)
-- **pytest** + pytest-asyncio + testcontainers
-- **ruff** + mypy (strict) + pre-commit
+- **LangGraph** + LangChain + OpenRouter (openai SDK)
+- **aiogram 3** (webhook + polling)
+- **httpx** — клиент к API основного проекта
+- **pytest** + pytest-asyncio + testcontainers + respx
+- **ruff** + mypy (strict) + pre-commit + gitleaks
+- **Docker** + Railway
 
 ## Быстрый старт
 
@@ -29,7 +44,7 @@ python -m venv .venv
 pip install -r requirements-dev.txt
 
 docker compose up -d                      # Postgres + Adminer
-cp .env.example .env
+cp .env.example .env                      # заполнить TELEGRAM_BOT_TOKEN и LLM_API_KEY
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
@@ -39,11 +54,16 @@ Swagger: http://127.0.0.1:8000/docs
 
 ### Telegram-бот
 
-**Webhook (прод).** Установи `TELEGRAM_MODE=webhook` и `TELEGRAM_WEBHOOK_URL=https://...`.
+**Webhook (прод).**
 
-**Polling (локально).** Публичного URL нет, поэтому бот сам опрашивает Telegram:
+```dotenv
+`TELEGRAM_MODE=webhook`,
+`TELEGRAM_WEBHOOK_URL=https://<домен>/telegram/webhook`.
+```
 
-```bash
+**Polling (локально).** Публичного URL нет, бот сам опрашивает Telegram:
+
+```dotenv
 # .env
 TELEGRAM_MODE=polling
 TELEGRAM_BOT_TOKEN=...
@@ -53,14 +73,57 @@ TELEGRAM_BOT_TOKEN=...
 python -m app.telegram.runner
 ```
 
+## Деплой на Railway
+
+- **PostgreSQL** — managed, `DATABASE_URL` подставляется в web.
+- **web** — Dockerfile, публичный HTTPS, он же Telegram-бот.
+
+`railway.toml`: `builder = "DOCKERFILE"`, `healthcheckPath = "/health"`.
+
+Переменные для web:
+
+```dotenv
+APP_ENV=production
+SECRET_KEY=<random>
+DATABASE_URL=<reference>
+MAIN_API_URL=https://project-finance-production-21.up.railway.app
+LLM_PROVIDER=openrouter
+LLM_API_KEY=sk-or-v1-...
+LLM_MODEL=google/gemini-3.1-flash-lite
+TELEGRAM_MODE=webhook
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_WEBHOOK_URL=https://<домен>/telegram/webhook
+TELEGRAM_WEBHOOK_SECRET=<random>
+TELEGRAM_RATE_LIMIT=10
+TELEGRAM_RATE_WINDOW=60
+```
+
 ## Тесты
 
 ```bash
-pytest
+pytest                                    # coverage ≥ 90%
+ruff check app/ tests/
+mypy app/
 ```
 
-Integration-тесты используют реальный Postgres через testcontainers —
-достаточно установленного Docker.
+Integration-тесты используют реальный Postgres через testcontainers.
+
+## Структура
+
+```
+app/
+├── agent/         # LangGraph: state, nodes, tools, graph, LLM-провайдеры
+├── api/           # FastAPI: /chat, /telegram/webhook
+├── telegram/      # aiogram: bot, handlers, middlewares, runner
+├── models/        # SQLAlchemy: Message
+├── services/      # agent_service
+├── config.py      # pydantic-settings
+├── db.py          # engine, session factory
+└── main.py        # FastAPI app + lifespan
+migrations/        # Alembic
+tests/unit/
+tests/integration/
+```
 
 ## Управление зависимостями
 
