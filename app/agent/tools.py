@@ -2,15 +2,29 @@
 Инструменты агента: HTTP-обёртки над публичным API project-finance.
 """
 
+import logging
 from typing import Any
 
 import httpx
 
 from app.config import get_settings
 
+logger = logging.getLogger(__name__)
+
 
 class MainAPIError(RuntimeError):
     """Ошибка при обращении к публичному API основного проекта."""
+
+
+def _friendly_http_error(status: int) -> str:
+    """Человеческое сообщение об ошибке без URL и деталей httpx."""
+    if status == 404:
+        return "Объект не найден."
+    if 500 <= status < 600:
+        return "Основной сервис временно недоступен."
+    if 400 <= status < 500:
+        return "Некорректный запрос к основному сервису."
+    return "Не удалось получить данные."
 
 
 async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
@@ -24,15 +38,24 @@ async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
         try:
             response = await client.get(url, params=params)
             response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise MainAPIError(f"GET {path}: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            logger.warning("HTTP %s on %s", exc.response.status_code, path)
+            raise MainAPIError(_friendly_http_error(exc.response.status_code)) from exc
+        except httpx.RequestError as exc:
+            logger.warning("Network error on %s: %s", path, exc)
+            raise MainAPIError("Основной сервис недоступен.") from exc
 
         return response.json()
 
 
-async def get_summary() -> Any:
-    """Сводка по финансам: доходы, расходы, прибыль, рентабельность."""
-    return await _get("/api/v1/summary")
+async def get_summary(*, date_from: str | None = None, date_to: str | None = None) -> Any:
+    """Сводка по финансам за период (или за всё время)."""
+    params: dict[str, Any] = {}
+    if date_from:
+        params["date_from"] = date_from
+    if date_to:
+        params["date_to"] = date_to
+    return await _get("/api/v1/summary", params=params or None)
 
 
 async def list_projects() -> Any:
@@ -246,6 +269,35 @@ async def aggregate_profit(
     }
 
 
+async def count_transactions(
+    *,
+    type: str | None = None,
+    project_id: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Считает транзакции по фильтрам, без выборки записей."""
+    params: dict[str, Any] = {"page": 1, "per_page": 1}
+    for key, value in (
+        ("type", type),
+        ("project_id", project_id),
+        ("date_from", date_from),
+        ("date_to", date_to),
+    ):
+        if value is not None:
+            params[key] = value
+
+    data = await _get("/api/v1/transactions", params=params)
+    total = data.get("total") if isinstance(data, dict) else None
+    return {
+        "count": int(total) if total is not None else 0,
+        "project_id": project_id,
+        "date_from": date_from,
+        "date_to": date_to,
+        "type": type,
+    }
+
+
 async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
     """
     Роутер по intent → нужный tool.
@@ -254,7 +306,9 @@ async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
 
     match intent:
         case "summary":
-            return await get_summary()
+            allowed = {"date_from", "date_to"}
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            return await get_summary(**kwargs)
 
         case "projects":
             return await list_projects()
@@ -282,6 +336,11 @@ async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
             allowed = {"type", "date_from", "date_to", "project_id"}
             kwargs = {k: v for k, v in params.items() if k in allowed}
             return await aggregate_transactions(**kwargs)
+
+        case "count":
+            allowed = {"type", "project_id", "date_from", "date_to"}
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            return await count_transactions(**kwargs)
 
         case _:
             raise MainAPIError(f"Неизвестный intent: {intent!r}")

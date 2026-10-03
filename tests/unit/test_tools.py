@@ -95,19 +95,54 @@ async def test_get_transactions_defaults_page_and_per_page(base_url: str) -> Non
 
 
 @respx.mock
-async def test_http_error_wrapped_in_main_api_error(base_url: str) -> None:
+async def test_http_500_wrapped_with_friendly_message(base_url: str) -> None:
+    """5xx → нейтральное сообщение без URL и деталей httpx."""
     respx.get(f"{base_url}/api/v1/summary").mock(return_value=httpx.Response(500, text="boom"))
 
-    with pytest.raises(MainAPIError, match="GET /api/v1/summary"):
+    with pytest.raises(MainAPIError, match="временно недоступен"):
         await tools.get_summary()
 
 
 @respx.mock
-async def test_network_error_wrapped_in_main_api_error(base_url: str) -> None:
+async def test_http_404_wrapped_with_friendly_message(base_url: str) -> None:
+    respx.get(f"{base_url}/api/v1/projects/999").mock(
+        return_value=httpx.Response(404, text="not found")
+    )
+
+    with pytest.raises(MainAPIError, match="Объект не найден"):
+        await tools.get_project_detail(999)
+
+
+@respx.mock
+async def test_http_400_wrapped_with_friendly_message(base_url: str) -> None:
+    respx.get(f"{base_url}/api/v1/summary").mock(return_value=httpx.Response(400, text="bad"))
+
+    with pytest.raises(MainAPIError, match="Некорректный запрос"):
+        await tools.get_summary()
+
+
+@respx.mock
+async def test_network_error_wrapped_with_friendly_message(base_url: str) -> None:
     respx.get(f"{base_url}/api/v1/summary").mock(side_effect=httpx.ConnectError("no route"))
 
-    with pytest.raises(MainAPIError):
+    with pytest.raises(MainAPIError, match="недоступен"):
         await tools.get_summary()
+
+
+@respx.mock
+async def test_main_api_error_does_not_leak_url(base_url: str) -> None:
+    """Сообщение об ошибке не содержит URL API — иначе утечка во фронт."""
+    respx.get(f"{base_url}/api/v1/projects/999").mock(
+        return_value=httpx.Response(404, text="not found")
+    )
+
+    with pytest.raises(MainAPIError) as exc_info:
+        await tools.get_project_detail(999)
+
+    msg = str(exc_info.value)
+    assert "http://" not in msg
+    assert "https://" not in msg
+    assert "/api/v1/" not in msg
 
 
 # ---------- dispatch ----------
@@ -286,3 +321,47 @@ def test_to_rub_falls_back_to_amount_without_amount_rub() -> None:
     """Если API не отдал amount_rub — используем amount как есть."""
     tx = {"amount": 100.5, "currency": "RUB"}
     assert tools._to_rub(tx) == 100.5
+
+
+@respx.mock
+async def test_get_summary_passes_dates(base_url: str) -> None:
+    route = respx.get(f"{base_url}/api/v1/summary").mock(
+        return_value=httpx.Response(200, json={"total_profit": 100})
+    )
+
+    await tools.get_summary(date_from="2026-08-01", date_to="2026-08-31")
+
+    params = route.calls.last.request.url.params
+    assert params["date_from"] == "2026-08-01"
+    assert params["date_to"] == "2026-08-31"
+
+
+@respx.mock
+async def test_get_summary_without_dates_sends_no_params(base_url: str) -> None:
+    route = respx.get(f"{base_url}/api/v1/summary").mock(return_value=httpx.Response(200, json={}))
+
+    await tools.get_summary()
+
+    assert not route.calls.last.request.url.params
+
+
+@respx.mock
+async def test_dispatch_summary_passes_dates(base_url: str) -> None:
+    route = respx.get(f"{base_url}/api/v1/summary").mock(return_value=httpx.Response(200, json={}))
+
+    await tools.dispatch("summary", {"date_from": "2026-08-01", "date_to": "2026-08-31"})
+
+    params = route.calls.last.request.url.params
+    assert params["date_from"] == "2026-08-01"
+
+
+@respx.mock
+async def test_count_transactions_returns_total(base_url: str) -> None:
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        return_value=httpx.Response(200, json={"total": 10, "items": []})
+    )
+
+    result = await tools.count_transactions(project_id=1)
+
+    assert result["count"] == 10
+    assert result["project_id"] == 1

@@ -8,7 +8,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -31,6 +31,8 @@ class Message(Base):
         nullable=False,
         index=True,
     )
+    intent: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    params: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
 
     def __init__(
         self,
@@ -40,12 +42,16 @@ class Message(Base):
         answer: str,
         llm_provider: str,
         latency_ms: int | None = None,
+        intent: str | None = None,
+        params: dict[str, object] | None = None,
     ) -> None:
         self.chat_id = chat_id
         self.question = question
         self.answer = answer
         self.llm_provider = llm_provider
         self.latency_ms = latency_ms
+        self.intent = intent
+        self.params = params
 
     def __repr__(self) -> str:
         preview = self.question[:40].replace("\n", " ")

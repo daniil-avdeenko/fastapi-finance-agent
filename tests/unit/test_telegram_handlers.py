@@ -42,13 +42,18 @@ async def test_cmd_start_sends_greeting() -> None:
     assert "ассистент" in text.lower()
 
 
-async def test_cmd_help_lists_examples() -> None:
+async def test_cmd_help_lists_intents() -> None:
+    """Help перечисляет возможности бота."""
     message = make_message("/help")
 
     await handlers.cmd_help(message)
 
     message.answer.assert_awaited_once()
-    assert "Примеры" in message.answer.call_args[0][0]
+    text = message.answer.call_args[0][0]
+    assert "Что я умею" in text
+    assert "Прибыль" in text
+    assert "Транзакции" in text
+    assert "Курсы валют" in text
 
 
 async def test_handle_question_calls_agent_service(

@@ -28,8 +28,9 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 
 Доступные intent:
 
-- "summary" — общая сводка по финансам (доходы, расходы, прибыль, рентабельность).
-  params: {}.
+- "summary" — общая сводка по финансам за период (доходы, расходы,
+  прибыль, рентабельность).
+  params: date_from, date_to ("YYYY-MM-DD", опционально).
 
 - "projects" — список всех проектов.
   params: {}.
@@ -40,6 +41,10 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 - "transactions" — список транзакций (без агрегации).
   params: type ("income"|"expense"), project_id (int),
   date_from, date_to ("YYYY-MM-DD"), page (int), per_page (int).
+
+- "count" — количество транзакций (не сумма).
+  Используй для вопросов «сколько транзакций», «сколько операций».
+  params: type, project_id, date_from, date_to ("YYYY-MM-DD").
 
 - "aggregate" — сумма транзакций за период, сгруппированная по проектам.
   Используй, если вопрос содержит: "суммарный", "итого", "просуммируй",
@@ -59,14 +64,53 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 
 ПРАВИЛА:
 - Отвечай ТОЛЬКО валидным JSON, без markdown-обёрток и пояснений.
-- Если параметр не указан явно — не включай его в params.
+- Если параметр не указан явно И нет подходящего хода в истории — не включай
+  его в params. Если вопрос ссылается на предыдущий — переноси параметры
+  оттуда, даже если в новом вопросе они не названы.
 - Даты всегда в формате YYYY-MM-DD. Месяц — с 1-го по последний день включительно.
 - Если вопрос про сумму/итог — это "aggregate", не "transactions".
 - Если вопрос непонятен или не о финансах — {"intent": "unknown", "params": {}}.
+- Если вопрос ссылается на предыдущий («а в июне?», «а прибыль?», «а тот же
+  проект?», «а рентабельность?») — бери ВСЕ params из последнего подходящего
+  хода истории и переопределяй только те, что явно меняются в новом вопросе.
+  Пример:
+  История: [{question: "Проект 1 какая прибыль в мае?",
+           intent: "profit",
+           params: {project_id: 1, date_from: "2026-05-01", date_to: "2026-05-31"}}]
+  Новый вопрос: "А в июне?"
+  → {"intent": "profit", "params": {project_id: 1, date_from: "2026-06-01", "date_to": "2026-06-30"}}
+   (project_id сохранён из истории, даты изменены)
+- Если предыдущий вопрос был про конкретный проект (project_detail,
+  aggregate/profit/transactions с project_id) и новый вопрос НЕ называет
+  другой проект явно и НЕ говорит «по всем», «везде», «в целом» — сохраняй
+  project_id из предыдущего хода.
+  Пример:
+    История: «Скинь всю информацию по проекту 5» → project_detail, {project_id: 5}
+    Новый: «Какой доход был в марте?»
+    → {"intent": "aggregate", "params": {"type": "income", "project_id": 5,
+        "date_from": "2026-03-01", "date_to": "2026-03-31"}}
+- Если вопрос ссылается на предыдущий и НЕ вводит новое действие
+  («прибыль», «доход», «расход», «сводка», «список», «курсы») — сохраняй
+  intent предыдущего хода, как и project_id.
+  Пример:
+    История: «Перечисли транзакции по проекту 1 за август» →
+      transactions, {project_id: 1, date_from: "2026-08-01", date_to: "2026-08-31"}
+    Новый: «А по проекту 3?»
+    → {"intent": "transactions", "params": {"project_id": 3,
+        "date_from": "2026-08-01", "date_to": "2026-08-31"}}
+    (intent и даты сохранены, project_id заменён)
+- Если новый вопрос меняет ТОЛЬКО даты («а за 15–20 августа», «а за июль»),
+  и предыдущий ход был про конкретный проект — сохраняй project_id и intent.
+  Пример:
+    История: «Транзакции по проекту 2 за август» →
+      transactions, {project_id: 2, date_from: "2026-08-01", date_to: "2026-08-31"}
+    Новый: «Транзакции за 15–20 августа»
+    → {"intent": "transactions", "params": {"project_id": 2,
+        "date_from": "2026-08-15", "date_to": "2026-08-20"}}
 
 ПРИМЕРЫ:
 
-"summary" → {"intent": "summary", "params": {}}
+"Сводка за август" → {"intent": "summary", "params": {"date_from": "2026-08-01", "date_to": "2026-08-31"}}
 "Как дела с финансами?" → {"intent": "summary", "params": {}}
 "Сколько проектов?" → {"intent": "projects", "params": {}}
 "Детали проекта 3" → {"intent": "project_detail", "params": {"project_id": 3}}
@@ -78,6 +122,7 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 "Прибыль за август" → {"intent": "profit", "params": {"date_from": "2026-08-01", "date_to": "2026-08-31"}}
 "Прибыль по проектам за май" → {"intent": "profit", "params": {"date_from": "2026-05-01", "date_to": "2026-05-31"}}
 "Какая погода?" → {"intent": "unknown", "params": {}}
+"Сколько транзакций в августе по проекту 1" → {"intent": "count", "params": {"project_id": 1, "date_from": "2026-08-01", "date_to": "2026-08-31"}}
 """
 
 
@@ -87,15 +132,51 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 
 ЖЁСТКИЕ ПРАВИЛА:
 - Используй ТОЛЬКО числа и текст из JSON. Ни одного числа, которого там нет.
-- Все суммы уже в рублях (поля *_rub). Не конвертируй, не добавляй валюту
-  кроме "RUB" или "₽".
-- Если в JSON есть grand_total_rub — это итоговая сумма.
-- Если есть by_project — покажи разбивку по проектам.
-- Если есть profit_rub — это прибыль. Если отрицательная — покажи как минус.
-- Если есть profitability_percent — это рентабельность в процентах,
-  указывай со знаком %.
-- Если есть данные, кратко указывай временной период (месяц, год), за который
-  приводишь финансовые отчёты.
+- Все суммы уже в рублях (поля *_rub). Не конвертируй.
+- Валюту указывай только символом ₽ после числа. Не пиши "RUB", "руб.", "рублей".
+- Если в by_project ровно одна запись — не выводи grand_total_rub или
+  grand_profit_rub отдельной строкой, покажи только цифры этого проекта.
+- Если в by_project больше одной записи — сначала итог (grand_*), потом
+  маркированный список по проектам.
+- Никогда не повторяй одно и то же число дважды. Если grand_* совпадает
+  с единственной записью by_project — выведи один раз.
+- Если ответ — агрегат или отчёт по проекту, начинай с названия проекта
+  и периода: «Проект X за август 2026: …».
+- Если ответ предполагает перечисление нескольких параметров, делай
+  маркированный список.
+- Период указывай человеческим языком: «за август 2026», «за май 2026»,
+  «за 2026 год». Не выводи ISO-даты (2026-08-01) и не пиши диапазоны.
+- Если profit_rub отрицательный — покажи как минус: «−1 234 ₽».
+- Если profitability_percent равен null или отсутствует — не упоминай
+  рентабельность вовсе. Не пиши «0%» или «нет данных» вместо неё.
+- Не дублируй вложенные кавычки в названии проектов. Если название само
+  содержит «...», внешние кавычки не ставь.
+- Всегда указывай точное название проекта, а не его номер или ID.
+- Если в JSON есть поле items (список транзакций):
+  • Выведи маркированный список.
+  • Для каждой записи бери поля СТРОГО из этой же записи:
+      type           → «Доход» или «Расход»
+      category_name  → категория (только category_name, НЕ description)
+      amount_rub     → сумма
+  • Не переноси поля из соседних записей. Не склеивай type, category_name
+    и amount_rub из разных записей одного items.
+  • Поле description — это примечание. Не выводи его.
+  • Пример: «Доход: Консультационные услуги — 1 247 062,51 ₽»
+- Если items содержит больше 15 записей — выведи первые 15 и напиши
+  «и ещё N записей». Не выводи итоги, прибыль и рентабельность —
+  пользователь просил список.
+  - Если в JSON несколько скалярных полей верхнего уровня
+  (total_income, total_expense, total_profit, overall_profitability,
+  grand_income_rub, grand_expense_rub, grand_profit_rub,
+  grand_profitability_percent) — выводи их маркированным списком, а не
+  одной строкой.
+  Пример:
+  Итоги за август 2026:
+  • Доход: 20 154 503,77 ₽
+  • Расход: 15 567 710,78 ₽
+  • Прибыль: 4 586 792,99 ₽
+  • Рентабельность: 22,76%
+- Для маркированных списков используй символ «•». Не используй «*» и «-».
 - Не добавляй пояснений, рассуждений, извинений, предложений «помочь дальше».
 - Не упоминай JSON, API, поля, ids, названия эндпоинтов.
 - Если данных нет — скажи «В данных нет информации» и остановись.
@@ -103,8 +184,25 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 """
 
 
+# 37,9% → 37,90%; 22,756% → 22,76%
+_PERCENT_RE = re.compile(r"(\d+)[.,](\d+)%")
+
+
+def _fix_percent(match: re.Match[str]) -> str:
+    whole = match.group(1)
+    frac = match.group(2)
+    if len(frac) == 1:
+        frac += "0"
+    elif len(frac) > 2:
+        # округляем до 2 знаков
+        value = round(float(f"{whole}.{frac}"), 2)
+        int_part, _, frac_part = f"{value:.2f}".partition(".")
+        return f"{int_part},{frac_part}%"
+    return f"{whole},{frac}%"
+
+
 _NUMBER_GROUPING_RE = re.compile(r"(?<=\d)\s(?=\d{3}(?!\d))")
-_NUMBER_RE = re.compile(r"(?<![\d.])(\d{4,})([.,]\d+)?(?!\d)")
+_NUMBER_RE = re.compile(r"(?<![\d.,])(\d{4,})([.,]\d+)?(?!\d)")
 
 
 def format_numbers(text: str) -> str:
@@ -132,6 +230,7 @@ def format_numbers(text: str) -> str:
         grouped = f"{value:,}".replace(",", " ")
         return f"{grouped}{frac}"
 
+    text = _PERCENT_RE.sub(_fix_percent, text)
     return _NUMBER_RE.sub(repl, text)
 
 
@@ -163,10 +262,137 @@ def _extract_json(raw: str) -> dict[str, Any]:
     return {}
 
 
+_MONTH_NAMES = [
+    "январь",
+    "февраль",
+    "март",
+    "апрель",
+    "май",
+    "июнь",
+    "июль",
+    "август",
+    "сентябрь",
+    "октябрь",
+    "ноябрь",
+    "декабрь",
+]
+
+
+def _human_date(iso: str) -> str:
+    """'2026-08-15' → '15.08.2026'."""
+    try:
+        year, month, day = iso[:10].split("-")
+        return f"{day}.{month}.{year}"
+    except (ValueError, AttributeError):
+        return iso
+
+
+def _human_period(date_from: str, date_to: str) -> str:
+    """
+    Период в читаемом виде.
+
+    Если диапазон покрывает месяц целиком (с 1-го по 28+ число) —
+    «август 2026». Иначе — «с 15.08.2026 по 20.08.2026».
+    """
+    if not date_from and not date_to:
+        return ""
+    if not date_from:
+        return f"по {_human_date(date_to)}"
+    if not date_to:
+        return f"с {_human_date(date_from)}"
+
+    ym_from = date_from[:7]
+    ym_to = date_to[:7]
+
+    is_full_month = (
+        ym_from == ym_to
+        and date_from[-2:] == "01"
+        and date_to[-2:].isdigit()
+        and int(date_to[-2:]) >= 28
+    )
+
+    if is_full_month:
+        try:
+            year, month = ym_from.split("-")
+            idx = int(month) - 1
+            if 0 <= idx < 12:
+                return f"{_MONTH_NAMES[idx]} {year}"
+        except (ValueError, AttributeError):
+            pass
+
+    return f"с {_human_date(date_from)} по {_human_date(date_to)}"
+
+
+def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
+    """
+    Собирает ответ для intent='transactions' без LLM.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    items = data.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+
+    project_name = items[0].get("project_name") or ""
+    period = _human_period(
+        params.get("date_from") or "",
+        params.get("date_to") or "",
+    )
+
+    header_parts: list[str] = []
+    if project_name:
+        header_parts.append(project_name)
+    if period:
+        header_parts.append(period)
+
+    if len(header_parts) == 2:
+        lines = [f"{header_parts[0]}, {header_parts[1]}:", ""]
+    elif header_parts:
+        lines = [f"{header_parts[0]}:", ""]
+    else:
+        lines = ["Транзакции:", ""]
+
+    shown = items[:15]
+    for tx in shown:
+        tx_type = "Доход" if tx.get("type") == "income" else "Расход"
+        category = tx.get("category_name") or "—"
+        amount = tx.get("amount_rub")
+        if amount is None:
+            amount = tx.get("amount")
+        amount_str = f"{amount}" if amount is not None else "—"
+
+        tx_date = (tx.get("date") or "")[:10]
+        date_prefix = f"{_human_date(tx_date)} — " if tx_date else ""
+        lines.append(f"• {date_prefix}{tx_type}: {category} — {amount_str} ₽")
+
+    if len(items) > len(shown):
+        lines.append("")
+        lines.append(f"и ещё {len(items) - len(shown)} записей.")
+
+    return format_numbers("\n".join(lines))
+
+
 async def understand_node(state: AgentState) -> dict[str, Any]:
-    """LLM разбирает вопрос → intent + params."""
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     system = UNDERSTAND_SYSTEM_PROMPT.replace("{today}", today)
+
+    history = state.get("history") or []
+    if history:
+        lines = ["ИСТОРИЯ ДИАЛОГА (последние вопросы):"]
+        for turn in history:
+            turn_intent = turn.get("intent") or "unknown"
+            turn_params = json.dumps(turn.get("params") or {}, ensure_ascii=False)
+            lines.append(f"- Q: {turn['question']}")
+            lines.append(f"  intent: {turn_intent}, params: {turn_params}")
+        lines.append("")
+        lines.append(
+            "Если новый вопрос ссылается на предыдущие («тот же», «такой же», "
+            "«а прибыль?», «а за май?», «а рентабельность?») — подставь intent "
+            "и params из подходящего хода истории. Если явно меняется только "
+            "дата или тип — измени только их, остальное бери из контекста."
+        )
+        system += "\n\n" + "\n".join(lines)
 
     try:
         llm = get_llm()
@@ -182,7 +408,6 @@ async def understand_node(state: AgentState) -> dict[str, Any]:
     if not isinstance(params, dict):
         params = {}
 
-    logger.info("understand: intent=%s params=%s", intent, params)
     return {"intent": intent, "params": params}
 
 
@@ -192,6 +417,9 @@ async def query_data_node(state: AgentState) -> dict[str, Any]:
         return {"data": None}
 
     intent = state.get("intent", "unknown")
+    if intent == "unknown":
+        return {"data": None, "error": None}
+
     params = state.get("params", {})
 
     try:
@@ -207,8 +435,47 @@ async def query_data_node(state: AgentState) -> dict[str, Any]:
 
 
 async def format_answer_node(state: AgentState) -> dict[str, Any]:
-    if state.get("error"):
-        return {"answer": f"Не удалось получить данные: {state['error']}. Попробуйте позже."}
+    """LLM превращает JSON-данные в человеческий текст. При error — без LLM."""
+    error = state.get("error")
+    if error:
+        msg = error.rstrip(".!?")
+        if "не найден" in msg.lower():
+            return {"answer": f"{msg}."}
+        return {"answer": f"Не удалось получить данные: {msg}. Попробуйте позже."}
+
+    if state.get("intent") == "transactions":
+        formatted = _format_transactions_plain(state.get("data"), state.get("params") or {})
+        if formatted is not None:
+            return {"answer": formatted}
+        return {"answer": "В данных нет информации."}
+
+    if state.get("intent") == "count":
+        data = state.get("data") or {}
+        count = data.get("count", 0)
+        parts = []
+        if data.get("project_id"):
+            parts.append(f"по проекту {data['project_id']}")
+        if data.get("type") == "income":
+            parts.append("доходных")
+        elif data.get("type") == "expense":
+            parts.append("расходных")
+        period = _human_period(data.get("date_from") or "", data.get("date_to") or "")
+        if period:
+            parts.append(period)
+        suffix = f" ({', '.join(parts)})" if parts else ""
+        return {"answer": f"Транзакций: {count}{suffix}."}
+
+    # Явный «не понял» вместо попытки пересказать пустые данные.
+    if state.get("intent") == "unknown":
+        return {
+            "answer": (
+                "Не понял вопрос. Я умею: сводка по финансам, список проектов, "
+                "детали проекта, транзакции с фильтрами, суммы за период, "
+                "прибыль и рентабельность, курсы валют.\n\n"
+                "Например: «Прибыль по проектам за август» или "
+                "«Суммарный доход за май»."
+            )
+        }
 
     llm = get_llm()
     user = (
