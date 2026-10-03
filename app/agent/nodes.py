@@ -217,6 +217,117 @@ def _extract_json(raw: str) -> dict[str, Any]:
     return {}
 
 
+_MONTH_NAMES = [
+    "январь",
+    "февраль",
+    "март",
+    "апрель",
+    "май",
+    "июнь",
+    "июль",
+    "август",
+    "сентябрь",
+    "октябрь",
+    "ноябрь",
+    "декабрь",
+]
+
+
+def _human_date(iso: str) -> str:
+    """'2026-08-15' → '15.08.2026'."""
+    try:
+        year, month, day = iso[:10].split("-")
+        return f"{day}.{month}.{year}"
+    except (ValueError, AttributeError):
+        return iso
+
+
+def _human_period(date_from: str, date_to: str) -> str:
+    """
+    Период в читаемом виде.
+
+    Если диапазон покрывает месяц целиком (с 1-го по 28+ число) —
+    «август 2026». Иначе — «с 15.08.2026 по 20.08.2026».
+    """
+    if not date_from and not date_to:
+        return ""
+    if not date_from:
+        return f"по {_human_date(date_to)}"
+    if not date_to:
+        return f"с {_human_date(date_from)}"
+
+    ym_from = date_from[:7]
+    ym_to = date_to[:7]
+
+    is_full_month = (
+        ym_from == ym_to
+        and date_from[-2:] == "01"
+        and date_to[-2:].isdigit()
+        and int(date_to[-2:]) >= 28
+    )
+
+    if is_full_month:
+        try:
+            year, month = ym_from.split("-")
+            idx = int(month) - 1
+            if 0 <= idx < 12:
+                return f"{_MONTH_NAMES[idx]} {year}"
+        except (ValueError, AttributeError):
+            pass
+
+    return f"с {_human_date(date_from)} по {_human_date(date_to)}"
+
+
+def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
+    """
+    Собирает ответ для intent='transactions' без LLM.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    items = data.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+
+    project_name = items[0].get("project_name") or ""
+    period = _human_period(
+        params.get("date_from") or "",
+        params.get("date_to") or "",
+    )
+
+    header_parts: list[str] = []
+    if project_name:
+        header_parts.append(project_name)
+    if period:
+        header_parts.append(period)
+
+    if len(header_parts) == 2:
+        lines = [f"{header_parts[0]}, {header_parts[1]}:", ""]
+    elif header_parts:
+        lines = [f"{header_parts[0]}:", ""]
+    else:
+        lines = ["Транзакции:", ""]
+
+    shown = items[:15]
+    for tx in shown:
+        tx_type = "Доход" if tx.get("type") == "income" else "Расход"
+        category = tx.get("category_name") or "—"
+        amount = tx.get("amount_rub")
+        if amount is None:
+            amount = tx.get("amount")
+        amount_str = f"{amount}" if amount is not None else "—"
+
+        tx_date = (tx.get("date") or "")[:10]
+        date_prefix = f"{_human_date(tx_date)} — " if tx_date else ""
+        lines.append(f"• {date_prefix}{tx_type}: {category} — {amount_str} ₽")
+
+    if len(items) > len(shown):
+        lines.append("")
+        lines.append(f"и ещё {len(items) - len(shown)} записей.")
+
+    return format_numbers("\n".join(lines))
+
+
 async def understand_node(state: AgentState) -> dict[str, Any]:
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     system = UNDERSTAND_SYSTEM_PROMPT.replace("{today}", today)
@@ -276,114 +387,6 @@ async def query_data_node(state: AgentState) -> dict[str, Any]:
         return {"data": None, "error": f"Внутренняя ошибка: {exc}"}
 
     return {"data": data, "error": None}
-
-
-def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
-    """
-    Собирает ответ для intent='transactions' без LLM.
-    """
-    if not isinstance(data, dict):
-        return None
-
-    items = data.get("items")
-    if not isinstance(items, list) or not items:
-        return None
-
-    project_name = items[0].get("project_name") or ""
-    period = _human_period(
-        params.get("date_from") or "",
-        params.get("date_to") or "",
-    )
-
-    header_parts: list[str] = []
-    if project_name:
-        header_parts.append(project_name)
-    if period:
-        header_parts.append(period)
-
-    if len(header_parts) == 2:
-        lines = [f"{header_parts[0]}, {header_parts[1]}:", ""]
-    elif header_parts:
-        lines = [f"{header_parts[0]}:", ""]
-    else:
-        lines = ["Транзакции:", ""]
-
-    shown = items[:15]
-    for tx in shown:
-        tx_type = "Доход" if tx.get("type") == "income" else "Расход"
-        category = tx.get("category_name") or "—"
-        amount = tx.get("amount_rub")
-        if amount is None:
-            amount = tx.get("amount")
-        amount_str = f"{float(amount):,.2f}".replace(",", " ") if amount is not None else "—"
-        lines.append(f"• {tx_type}: {category} — {amount_str} ₽")
-
-    if len(items) > len(shown):
-        lines.append("")
-        lines.append(f"и ещё {len(items) - len(shown)} записей.")
-
-    return format_numbers("\n".join(lines))
-
-
-_MONTH_NAMES = [
-    "январь",
-    "февраль",
-    "март",
-    "апрель",
-    "май",
-    "июнь",
-    "июль",
-    "август",
-    "сентябрь",
-    "октябрь",
-    "ноябрь",
-    "декабрь",
-]
-
-
-def _human_date(iso: str) -> str:
-    """'2026-08-15' → '15.08.2026'."""
-    try:
-        year, month, day = iso[:10].split("-")
-        return f"{day}.{month}.{year}"
-    except (ValueError, AttributeError):
-        return iso
-
-
-def _human_period(date_from: str, date_to: str) -> str:
-    """
-    Период в человеческом виде.
-
-    Если диапазон покрывает месяц целиком (с 1-го по 28+ число) —
-    «август 2026». Иначе — «с 15.08.2026 по 20.08.2026».
-    """
-    if not date_from and not date_to:
-        return ""
-    if not date_from:
-        return f"по {_human_date(date_to)}"
-    if not date_to:
-        return f"с {_human_date(date_from)}"
-
-    ym_from = date_from[:7]
-    ym_to = date_to[:7]
-
-    is_full_month = (
-        ym_from == ym_to
-        and date_from[-2:] == "01"
-        and date_to[-2:].isdigit()
-        and int(date_to[-2:]) >= 28
-    )
-
-    if is_full_month:
-        try:
-            year, month = ym_from.split("-")
-            idx = int(month) - 1
-            if 0 <= idx < 12:
-                return f"{_MONTH_NAMES[idx]} {year}"
-        except (ValueError, AttributeError):
-            pass
-
-    return f"с {_human_date(date_from)} по {_human_date(date_to)}"
 
 
 async def format_answer_node(state: AgentState) -> dict[str, Any]:
