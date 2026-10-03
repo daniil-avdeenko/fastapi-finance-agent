@@ -261,6 +261,9 @@ async def query_data_node(state: AgentState) -> dict[str, Any]:
         return {"data": None}
 
     intent = state.get("intent", "unknown")
+    if intent == "unknown":
+        return {"data": None, "error": None}
+
     params = state.get("params", {})
 
     try:

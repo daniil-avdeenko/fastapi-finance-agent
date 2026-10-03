@@ -95,19 +95,54 @@ async def test_get_transactions_defaults_page_and_per_page(base_url: str) -> Non
 
 
 @respx.mock
-async def test_http_error_wrapped_in_main_api_error(base_url: str) -> None:
+async def test_http_500_wrapped_with_friendly_message(base_url: str) -> None:
+    """5xx → нейтральное сообщение без URL и деталей httpx."""
     respx.get(f"{base_url}/api/v1/summary").mock(return_value=httpx.Response(500, text="boom"))
 
-    with pytest.raises(MainAPIError, match="GET /api/v1/summary"):
+    with pytest.raises(MainAPIError, match="временно недоступен"):
         await tools.get_summary()
 
 
 @respx.mock
-async def test_network_error_wrapped_in_main_api_error(base_url: str) -> None:
+async def test_http_404_wrapped_with_friendly_message(base_url: str) -> None:
+    respx.get(f"{base_url}/api/v1/projects/999").mock(
+        return_value=httpx.Response(404, text="not found")
+    )
+
+    with pytest.raises(MainAPIError, match="Объект не найден"):
+        await tools.get_project_detail(999)
+
+
+@respx.mock
+async def test_http_400_wrapped_with_friendly_message(base_url: str) -> None:
+    respx.get(f"{base_url}/api/v1/summary").mock(return_value=httpx.Response(400, text="bad"))
+
+    with pytest.raises(MainAPIError, match="Некорректный запрос"):
+        await tools.get_summary()
+
+
+@respx.mock
+async def test_network_error_wrapped_with_friendly_message(base_url: str) -> None:
     respx.get(f"{base_url}/api/v1/summary").mock(side_effect=httpx.ConnectError("no route"))
 
-    with pytest.raises(MainAPIError):
+    with pytest.raises(MainAPIError, match="недоступен"):
         await tools.get_summary()
+
+
+@respx.mock
+async def test_main_api_error_does_not_leak_url(base_url: str) -> None:
+    """Сообщение об ошибке не содержит URL API — иначе утечка во фронт."""
+    respx.get(f"{base_url}/api/v1/projects/999").mock(
+        return_value=httpx.Response(404, text="not found")
+    )
+
+    with pytest.raises(MainAPIError) as exc_info:
+        await tools.get_project_detail(999)
+
+    msg = str(exc_info.value)
+    assert "http://" not in msg
+    assert "https://" not in msg
+    assert "/api/v1/" not in msg
 
 
 # ---------- dispatch ----------

@@ -2,15 +2,29 @@
 Инструменты агента: HTTP-обёртки над публичным API project-finance.
 """
 
+import logging
 from typing import Any
 
 import httpx
 
 from app.config import get_settings
 
+logger = logging.getLogger(__name__)
+
 
 class MainAPIError(RuntimeError):
     """Ошибка при обращении к публичному API основного проекта."""
+
+
+def _friendly_http_error(status: int) -> str:
+    """Человеческое сообщение об ошибке без URL и деталей httpx."""
+    if status == 404:
+        return "Объект не найден."
+    if 500 <= status < 600:
+        return "Основной сервис временно недоступен."
+    if 400 <= status < 500:
+        return "Некорректный запрос к основному сервису."
+    return "Не удалось получить данные."
 
 
 async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
@@ -24,8 +38,12 @@ async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
         try:
             response = await client.get(url, params=params)
             response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise MainAPIError(f"GET {path}: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            logger.warning("HTTP %s on %s", exc.response.status_code, path)
+            raise MainAPIError(_friendly_http_error(exc.response.status_code)) from exc
+        except httpx.RequestError as exc:
+            logger.warning("Network error on %s: %s", path, exc)
+            raise MainAPIError("Основной сервис недоступен.") from exc
 
         return response.json()
 

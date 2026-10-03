@@ -126,6 +126,19 @@ async def test_query_data_wraps_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result["error"] == "boom"
 
 
+async def test_query_data_skips_unknown_intent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Для intent='unknown' dispatch не вызывается — там нечего выполнять."""
+
+    async def boom(intent: str, params: dict[str, Any]) -> Any:
+        raise AssertionError("dispatch не должен вызываться для unknown")
+
+    monkeypatch.setattr(nodes, "dispatch", boom)
+
+    result = await nodes.query_data_node({"question": "q", "intent": "unknown", "params": {}})
+
+    assert result == {"data": None, "error": None}
+
+
 # ---------- format_answer_node ----------
 
 
