@@ -264,3 +264,88 @@ async def test_format_answer_short_circuits_on_unknown(
 
     assert "Не понял вопрос" in result["answer"]
     assert "Прибыль" in result["answer"]
+
+
+def test_format_transactions_plain_renders_items() -> None:
+    """Форматирует список транзакций без LLM, категории из своей записи."""
+    data = {
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "items": [
+            {
+                "type": "income",
+                "category_name": "Консультационные услуги",
+                "amount_rub": 1_247_062.51,
+                "project_name": "CRM для банка «Альфа»",
+            },
+            {
+                "type": "expense",
+                "category_name": "Расходы на ИИ",
+                "amount_rub": 716_671.56,
+                "project_name": "CRM для банка «Альфа»",
+            },
+        ],
+    }
+
+    result = nodes._format_transactions_plain(data)
+
+    assert result is not None
+    assert "Доход: Консультационные услуги — 1 247 062.51 ₽" in result
+    assert "Расход: Расходы на ИИ — 716 671.56 ₽" in result
+    assert "за август 2026" in result
+
+
+def test_format_transactions_plain_empty_returns_none() -> None:
+    assert nodes._format_transactions_plain({"items": []}) is None
+
+
+def test_format_transactions_plain_caps_at_15() -> None:
+    """Больше 15 записей — обрезаем и пишем, сколько осталось."""
+    items = [
+        {
+            "type": "income",
+            "category_name": f"Cat{i}",
+            "amount_rub": 100.0,
+            "project_name": "P",
+        }
+        for i in range(20)
+    ]
+    result = nodes._format_transactions_plain(
+        {"items": items, "date_from": "2026-08-01", "date_to": "2026-08-31"}
+    )
+
+    assert result is not None
+    assert result.count("•") == 15
+    assert "и ещё 5 записей" in result
+
+
+async def test_format_answer_transactions_uses_python_formatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """intent=transactions → LLM не вызывается вообще."""
+
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться для списка транзакций")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {
+            "question": "Перечисли транзакции",
+            "intent": "transactions",
+            "data": {
+                "items": [
+                    {
+                        "type": "expense",
+                        "category_name": "Налоги",
+                        "amount_rub": 240_500.0,
+                        "project_name": "Alpha",
+                    }
+                ],
+                "date_from": "2026-08-01",
+                "date_to": "2026-08-31",
+            },
+        }
+    )
+
+    assert "Расход: Налоги" in result["answer"]

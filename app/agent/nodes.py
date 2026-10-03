@@ -275,10 +275,87 @@ async def query_data_node(state: AgentState) -> dict[str, Any]:
     return {"data": data, "error": None}
 
 
+def _format_transactions_plain(data: Any) -> str | None:
+    """
+    Собирает ответ для intent='transactions' без LLM.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    items = data.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+
+    project_name = items[0].get("project_name") or ""
+    date_from = (data.get("date_from") or "")[:7]  # YYYY-MM
+    date_to = (data.get("date_to") or "")[:7]
+
+    # Заголовок: проект + период
+    header_parts: list[str] = []
+    if project_name:
+        header_parts.append(project_name)
+    if date_from and date_to and date_from == date_to:
+        header_parts.append(_human_period(date_from))
+    header = (
+        ": ".join(header_parts)
+        if len(header_parts) == 2
+        else (header_parts[0] if header_parts else "Транзакции")
+    )
+    lines = [f"{header}:" if header else "Транзакции:", ""]
+
+    shown = items[:15]
+    for tx in shown:
+        tx_type = "Доход" if tx.get("type") == "income" else "Расход"
+        category = tx.get("category_name") or "—"
+        amount = tx.get("amount_rub")
+        if amount is None:
+            amount = tx.get("amount")
+        amount_str = f"{float(amount):,.2f}".replace(",", " ") if amount is not None else "—"
+        lines.append(f"• {tx_type}: {category} — {amount_str} ₽")
+
+    if len(items) > len(shown):
+        lines.append("")
+        lines.append(f"и ещё {len(items) - len(shown)} записей.")
+
+    return "\n".join(lines)
+
+
+def _human_period(yyyy_mm: str) -> str:
+    """'2026-08' → 'за август 2026'."""
+    month_names = [
+        "январь",
+        "февраль",
+        "март",
+        "апрель",
+        "май",
+        "июнь",
+        "июль",
+        "август",
+        "сентябрь",
+        "октябрь",
+        "ноябрь",
+        "декабрь",
+    ]
+    try:
+        year, month = yyyy_mm.split("-")
+        idx = int(month) - 1
+        if 0 <= idx < 12:
+            return f"за {month_names[idx]} {year}"
+    except (ValueError, AttributeError):
+        pass
+    return f"за {yyyy_mm}"
+
+
 async def format_answer_node(state: AgentState) -> dict[str, Any]:
     """LLM превращает JSON-данные в человеческий текст. При error — без LLM."""
     if state.get("error"):
         return {"answer": f"Не удалось получить данные: {state['error']}. Попробуйте позже."}
+
+    if state.get("intent") == "transactions":
+        formatted = _format_transactions_plain(state.get("data"))
+        if formatted is not None:
+            return {"answer": formatted}
+        return {"answer": "В данных нет информации."}
 
     # Явный «не понял» вместо попытки пересказать пустые данные.
     if state.get("intent") == "unknown":
