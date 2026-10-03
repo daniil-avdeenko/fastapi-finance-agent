@@ -477,3 +477,11 @@ def test_format_numbers_pads_percent_to_two_digits() -> None:
 
 def test_format_numbers_rounds_long_percent() -> None:
     assert nodes.format_numbers("26,756%") == "26,76%"
+
+
+async def test_format_answer_not_found_skips_retry_hint() -> None:
+    result = await nodes.format_answer_node(
+        {"question": "q", "error": "Объект не найден.", "data": None}
+    )
+    assert "Попробуйте позже" not in result["answer"]
+    assert "Объект не найден" in result["answer"]
