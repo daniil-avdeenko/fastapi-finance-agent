@@ -96,3 +96,33 @@ async def test_message_repr(db_session: AsyncSession) -> None:
 
     assert "chat=999" in repr(message)
     assert "Очень длинный вопрос" in repr(message)
+
+
+async def test_message_stores_intent_and_params(db_session: AsyncSession) -> None:
+    """Message сохраняет intent и params для контекста диалога."""
+    msg = Message(
+        chat_id=1,
+        question="Доходы за август",
+        answer="...",
+        llm_provider="mock",
+        intent="aggregate",
+        params={"type": "income", "date_from": "2026-08-01", "date_to": "2026-08-31"},
+    )
+    db_session.add(msg)
+    await db_session.commit()
+
+    result = await db_session.execute(select(Message).where(Message.chat_id == 1))
+    saved = result.scalar_one()
+
+    assert saved.intent == "aggregate"
+    assert saved.params == {"type": "income", "date_from": "2026-08-01", "date_to": "2026-08-31"}
+
+
+async def test_message_intent_and_params_default_to_none(db_session: AsyncSession) -> None:
+    """Старые сообщения (до миграции) и ручные — без intent/params."""
+    msg = Message(chat_id=1, question="q", answer="a", llm_provider="mock")
+    db_session.add(msg)
+    await db_session.commit()
+
+    assert msg.intent is None
+    assert msg.params is None
