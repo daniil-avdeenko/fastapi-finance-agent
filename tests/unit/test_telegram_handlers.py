@@ -81,9 +81,16 @@ async def test_handle_question_calls_agent_service(
     """Хендлер зовёт process_question и отдаёт его answer в чат."""
     captured: dict[str, Any] = {}
 
-    async def fake_process(session: Any, *, chat_id: int, question: str) -> AgentResult:
+    async def fake_process(
+        session: Any,
+        *,
+        chat_id: int,
+        question: str,
+        use_history: bool = True,
+    ) -> AgentResult:
         captured["chat_id"] = chat_id
         captured["question"] = question
+        captured["use_history"] = use_history
         return AgentResult(answer="Сводка готова", llm_provider="mock", latency_ms=42)
 
     monkeypatch.setattr(handlers, "process_question", fake_process)
@@ -93,7 +100,11 @@ async def test_handle_question_calls_agent_service(
 
     await handlers.handle_question(message)
 
-    assert captured == {"chat_id": 99, "question": "Какие доходы?"}
+    assert captured == {
+        "chat_id": 99,
+        "question": "Какие доходы?",
+        "use_history": True,
+    }
     message.bot.send_chat_action.assert_awaited_once()
     message.answer.assert_awaited_once_with("Сводка готова")
 
@@ -146,12 +157,13 @@ async def test_quick_action_help(monkeypatch) -> None:
 
 
 async def test_quick_action_summary(monkeypatch) -> None:
-    """Кнопка «Сводка» отправляет вопрос в граф."""
+    """Кнопка «Сводка» отправляет вопрос в граф без контекста."""
     captured = {}
 
-    async def fake_process(session, *, chat_id, question):
+    async def fake_process(session, *, chat_id, question, use_history=True):
         captured["chat_id"] = chat_id
         captured["question"] = question
+        captured["use_history"] = use_history
         return AgentResult(answer="ok", llm_provider="mock", latency_ms=10)
 
     monkeypatch.setattr(handlers, "process_question", fake_process)
@@ -162,6 +174,7 @@ async def test_quick_action_summary(monkeypatch) -> None:
 
     assert captured["chat_id"] == 42
     assert captured["question"] == "Сводка по финансам"
+    assert captured["use_history"] is False
     callback.message.answer.assert_awaited_once_with("ok")
 
 

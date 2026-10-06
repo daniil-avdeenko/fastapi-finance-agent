@@ -56,16 +56,17 @@ async def process_question(
     *,
     chat_id: int,
     question: str,
+    use_history: bool = True,
 ) -> AgentResult:
     """
     Прогоняет вопрос через граф агента и сохраняет пару в Message.
 
-    Бросает RuntimeError, если граф не сформировал answer —
-    это баг в узлах, наверх отдаём явно, без None.
+    use_history=False отключает подкладывание предыдущих сообщений в промпт
+    understand. Нужно для inline-кнопок.
     """
     started = time.perf_counter()
 
-    history = await _load_history(session, chat_id)
+    history = await _load_history(session, chat_id) if use_history else []
 
     graph = get_graph()
     result = await graph.ainvoke(

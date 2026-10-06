@@ -39,18 +39,19 @@ async def _ask_agent(
     answer_to: Message,
     chat_id: int,
     question: str,
+    use_history: bool = True,
 ) -> None:
-    """
-    Общий путь обработки вопроса: typing → process_question → ответ.
-
-    Используется текстовым хендлером и callback-кнопками. Ошибки не летят
-    наружу — пользователь всегда получает текст.
-    """
+    """Общий путь: typing → process_question → ответ."""
     await bot.send_chat_action(chat_id=chat_id, action="typing")
 
     async with SessionLocal() as session:
         try:
-            result = await process_question(session, chat_id=chat_id, question=question)
+            result = await process_question(
+                session,
+                chat_id=chat_id,
+                question=question,
+                use_history=use_history,
+            )
         except Exception:
             logger.exception("agent call failed")
             await answer_to.answer("Произошла ошибка. Попробуйте позже.")
@@ -115,4 +116,5 @@ async def handle_quick_action(callback: CallbackQuery) -> None:
         answer_to=callback.message,
         chat_id=callback.message.chat.id,
         question=QUICK_ACTIONS[action],
+        use_history=False,
     )
