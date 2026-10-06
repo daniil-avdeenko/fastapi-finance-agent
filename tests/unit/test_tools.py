@@ -365,3 +365,77 @@ async def test_count_transactions_returns_total(base_url: str) -> None:
 
     assert result["count"] == 10
     assert result["project_id"] == 1
+
+
+@respx.mock
+async def test_top_projects_sorts_by_profit(base_url: str) -> None:
+    """Сортирует по прибыли убывающая, обрезает до n."""
+    income_items = [
+        {"project_id": 1, "project_name": "A", "amount_rub": 1000.0, "type": "income"},
+        {"project_id": 2, "project_name": "B", "amount_rub": 500.0, "type": "income"},
+        {"project_id": 3, "project_name": "C", "amount_rub": 800.0, "type": "income"},
+    ]
+    expense_items = [
+        {"project_id": 1, "project_name": "A", "amount_rub": 900.0, "type": "expense"},
+        {"project_id": 2, "project_name": "B", "amount_rub": 100.0, "type": "expense"},
+        {"project_id": 3, "project_name": "C", "amount_rub": 700.0, "type": "expense"},
+    ]
+
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        side_effect=[
+            httpx.Response(200, json={"items": income_items}),
+            httpx.Response(200, json={"items": expense_items}),
+        ]
+    )
+
+    result = await tools.top_projects(n=2, metric="profit")
+
+    assert result["n"] == 2
+    assert len(result["items"]) == 2
+    # C: 800-700=100, A: 1000-900=100, B: 500-100=400 → порядок B, A/C
+    names = [p["project_name"] for p in result["items"]]
+    assert names[0] == "B"  # 400 ₽ прибыли
+
+
+@respx.mock
+async def test_top_projects_sorts_by_income(base_url: str) -> None:
+    """metric=income берёт только доходы."""
+    items = [
+        {"project_id": 1, "project_name": "A", "amount_rub": 1000.0, "type": "income"},
+        {"project_id": 2, "project_name": "B", "amount_rub": 500.0, "type": "income"},
+    ]
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        return_value=httpx.Response(200, json={"items": items})
+    )
+
+    result = await tools.top_projects(n=3, metric="income")
+
+    assert result["items"][0]["project_name"] == "A"
+    assert result["items"][0]["metric_value"] == 1000.0
+
+
+async def test_top_projects_clamps_n() -> None:
+    """n ограничивается сверху."""
+    # Если n=100 — обрезается до 10 при запросе
+    from unittest.mock import AsyncMock
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            tools,
+            "aggregate_transactions",
+            AsyncMock(return_value={"by_project": []}),
+        )
+        result = await tools.top_projects(n=100, metric="income")
+        assert result["n"] == 10
+
+
+@respx.mock
+async def test_dispatch_routes_top_n(base_url: str) -> None:
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+
+    result = await tools.dispatch("top_n", {"n": 3, "metric": "income"})
+
+    assert result["n"] == 3
+    assert result["metric"] == "income"

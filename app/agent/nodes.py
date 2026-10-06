@@ -60,6 +60,12 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
   "чистая прибыль", "выручка минус расходы".
   params: date_from, date_to ("YYYY-MM-DD"), project_id (int, опционально).
 
+- "top_n" — топ N проектов по метрике за период.
+  Используй, если вопрос содержит: "топ", "топ-N", "лучшие",
+  "самые прибыльные", "наибольшая прибыль", "лидеры".
+  params: n (int, по умолчанию 3), metric ("profit" | "income" | "profitability",
+  по умолчанию "profit"), date_from, date_to ("YYYY-MM-DD").
+
 - "unknown" — вопрос не относится к финансам проектов.
 
 ПРАВИЛА:
@@ -123,6 +129,9 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 "Прибыль по проектам за май" → {"intent": "profit", "params": {"date_from": "2026-05-01", "date_to": "2026-05-31"}}
 "Какая погода?" → {"intent": "unknown", "params": {}}
 "Сколько транзакций в августе по проекту 1" → {"intent": "count", "params": {"project_id": 1, "date_from": "2026-08-01", "date_to": "2026-08-31"}}
+"Топ-3 проекта по прибыли за август" → {"intent": "top_n", "params": {"n": 3, "metric": "profit", "date_from": "2026-08-01", "date_to": "2026-08-31"}}
+"Самые прибыльные проекты за май" → {"intent": "top_n", "params": {"metric": "profit", "date_from": "2026-05-01", "date_to": "2026-05-31"}}
+"Топ-5 по доходу за август" → {"intent": "top_n", "params": {"n": 5, "metric": "income", "date_from": "2026-08-01", "date_to": "2026-08-31"}}
 """
 
 
