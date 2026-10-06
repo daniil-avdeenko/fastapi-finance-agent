@@ -109,3 +109,33 @@ async def test_process_question_empty_history(db_session, monkeypatch):
     await agent_service.process_question(db_session, chat_id=999, question="привет")
 
     assert captured["history"] == []
+
+
+async def test_process_question_skips_history_when_disabled(db_session, monkeypatch) -> None:
+    """use_history=False — история не читается из БД."""
+    db_session.add(
+        Message(
+            chat_id=1,
+            question="Доходы за май",
+            answer="...",
+            llm_provider="mock",
+            intent="aggregate",
+            params={"date_from": "2026-05-01"},
+        )
+    )
+    await db_session.commit()
+
+    captured = {}
+
+    class FakeGraph:
+        async def ainvoke(self, state):
+            captured.update(state)
+            return {"answer": "ok", "intent": "summary", "params": {}}
+
+    monkeypatch.setattr(agent_service, "get_graph", lambda: FakeGraph())
+
+    await agent_service.process_question(
+        db_session, chat_id=1, question="Сводка", use_history=False
+    )
+
+    assert captured["history"] == []
