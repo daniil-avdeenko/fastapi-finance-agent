@@ -196,6 +196,9 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 # 37,9% → 37,90%; 22,756% → 22,76%
 _PERCENT_RE = re.compile(r"(\d+)[.,](\d+)%")
 
+# Десятичная точка перед символом валюты или процента → запятая.
+_DECIMAL_DOT_RE = re.compile(r"(\d)\.(\d+)(?=\s*[₽%])")
+
 
 def _fix_percent(match: re.Match[str]) -> str:
     whole = match.group(1)
@@ -216,8 +219,10 @@ _NUMBER_RE = re.compile(r"(?<![\d.,])(\d{4,})([.,]\d+)?(?!\d)")
 
 def format_numbers(text: str) -> str:
     """
-    Приводит числа в тексте к виду '1 234 567.89'.
+    Приводит числа в тексте к виду '1 234 567,89'.
 
+    - Разделители тысяч — пробелы.
+    - Десятичный разделитель перед ₽ или % — запятая.
     - Убирает .0 / ,0 у целых (1234.0 → 1 234).
     - Схлопывает уже расставленные пробелы перед форматированием
       (14 450 744.0 → 14 450 744), чтобы работать с идемпотентным входом.
@@ -240,7 +245,9 @@ def format_numbers(text: str) -> str:
         return f"{grouped}{frac}"
 
     text = _PERCENT_RE.sub(_fix_percent, text)
-    return _NUMBER_RE.sub(repl, text)
+    text = _NUMBER_RE.sub(repl, text)
+    text = _DECIMAL_DOT_RE.sub(r"\1,\2", text)
+    return text
 
 
 def _extract_json(raw: str) -> dict[str, Any]:

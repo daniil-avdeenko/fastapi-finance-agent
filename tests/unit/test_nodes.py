@@ -302,8 +302,8 @@ def test_format_transactions_plain_renders_items() -> None:
     result = nodes._format_transactions_plain(data, params)
 
     assert result is not None
-    assert "Доход: Консультационные услуги — 1 247 062.51 ₽" in result
-    assert "Расход: Расходы на ИИ — 716 671.56 ₽" in result
+    assert "Доход: Консультационные услуги — 1 247 062,51 ₽" in result
+    assert "Расход: Расходы на ИИ — 716 671,56 ₽" in result  # было .56
     assert "август 2026" in result
 
 
@@ -405,8 +405,8 @@ def test_format_transactions_plain_strips_trailing_zeros() -> None:
 
     assert result is not None
     assert "240 500 ₽" in result
-    assert "240 500.00" not in result
-    assert "1 247 062.51 ₽" in result  # значимая дробь не тронута
+    assert "240 500,00" not in result
+    assert "1 247 062,51 ₽" in result  # значимая дробь не тронута
 
 
 def test_format_transactions_plain_single_month_period() -> None:
@@ -438,7 +438,7 @@ def test_format_transactions_plain_custom_range() -> None:
 def test_format_numbers_ignores_decimal_part() -> None:
     """94,3201 не должно превращаться в 94,3 201."""
     assert nodes.format_numbers("94,3201 ₽") == "94,3201 ₽"
-    assert nodes.format_numbers("83.4839 ₽") == "83.4839 ₽"
+    assert nodes.format_numbers("83.4839 ₽") == "83,4839 ₽"
 
 
 async def test_format_answer_count_intent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -485,3 +485,15 @@ async def test_format_answer_not_found_skips_retry_hint() -> None:
     )
     assert "Попробуйте позже" not in result["answer"]
     assert "Объект не найден" in result["answer"]
+
+
+def test_format_numbers_decimal_comma_before_currency() -> None:
+    """Десятичная точка перед ₽ или % меняется на запятую."""
+    assert nodes.format_numbers("2 056 081.06 ₽") == "2 056 081,06 ₽"
+    assert nodes.format_numbers("1234.56 ₽") == "1 234,56 ₽"
+
+
+def test_format_numbers_keeps_dot_outside_currency() -> None:
+    """Точка вне контекста ₽/% не трогается."""
+    assert nodes.format_numbers("версия 1.2") == "версия 1.2"
+    assert nodes.format_numbers("1234.56 руб") == "1 234.56 руб"

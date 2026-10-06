@@ -315,7 +315,8 @@ async def top_projects(
     Сортировка в Python: LLM путает порядок чисел на списках и может
     переставить соседние проекты. Для ответа «топ-3» это критично.
     """
-    limit = 10 if n is None else max(1, min(int(n), 10))
+    max_n = 10
+    n = max_n if n is None else max(1, min(int(n), max_n))
 
     if metric == "income":
         income = await aggregate_transactions(type="income", date_from=date_from, date_to=date_to)
@@ -344,14 +345,13 @@ async def top_projects(
             )
 
     sorted_items = sorted(items, key=lambda x: x["metric_value"], reverse=True)
-    result_items = sorted_items[:limit]
 
     return {
-        "n": len(result_items),
+        "n": n,
         "metric": metric,
         "date_from": date_from,
         "date_to": date_to,
-        "items": result_items,
+        "items": sorted_items[:n],
     }
 
 
