@@ -22,6 +22,25 @@ def make_message(text: str, chat_id: int = 1) -> Message:
     return message
 
 
+def make_callback(data: str, chat_id: int = 1) -> CallbackQuery:
+    """Фейковый CallbackQuery с message, проходящим isinstance-проверку."""
+    callback = MagicMock(spec=CallbackQuery)
+    callback.data = data
+    callback.answer = AsyncMock()
+
+    message = MagicMock(spec=Message)
+    # Подменяем __class__, чтобы хендлер видел настоящий Message.
+    message.__class__ = Message
+    message.chat = MagicMock()
+    message.chat.id = chat_id
+    message.answer = AsyncMock()
+
+    callback.message = message
+    callback.bot = MagicMock()
+    callback.bot.send_chat_action = AsyncMock()
+    return callback
+
+
 class _FakeSession:
     """Заглушка async context manager для SessionLocal."""
 
@@ -98,19 +117,6 @@ async def test_handle_question_reports_errors(
     assert "ошибка" in message.answer.call_args[0][0].lower()
 
 
-def make_callback(data: str, chat_id: int = 1) -> CallbackQuery:
-    """Фейковый CallbackQuery."""
-    callback = MagicMock(spec=CallbackQuery)
-    callback.data = data
-    callback.answer = AsyncMock()
-    callback.message = MagicMock()
-    callback.message.chat = MagicMock(id=chat_id)
-    callback.message.answer = AsyncMock()
-    callback.bot = MagicMock()
-    callback.bot.send_chat_action = AsyncMock()
-    return callback
-
-
 async def test_cmd_start_shows_keyboard() -> None:
     message = make_message("/start")
     await handlers.cmd_start(message)
@@ -160,12 +166,13 @@ async def test_quick_action_summary(monkeypatch) -> None:
 
 
 async def test_quick_action_unknown_data() -> None:
-    """Неизвестный action — отвечаем «устарела», граф не зовём."""
+    """Неизвестный action — подсказываем нажать /start, граф не зовём."""
     callback = make_callback("ask:nonexistent")
     await handlers.handle_quick_action(callback)
 
     callback.answer.assert_awaited_once()
-    assert "устарела" in callback.answer.call_args[0][0].lower()
+    text = callback.answer.call_args[0][0]
+    assert "/start" in text
 
 
 async def test_quick_action_bad_prefix() -> None:
