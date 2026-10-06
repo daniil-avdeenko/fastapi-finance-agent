@@ -302,8 +302,8 @@ def test_format_transactions_plain_renders_items() -> None:
     result = nodes._format_transactions_plain(data, params)
 
     assert result is not None
-    assert "Доход: Консультационные услуги — 1 247 062.51 ₽" in result
-    assert "Расход: Расходы на ИИ — 716 671.56 ₽" in result
+    assert "Доход: Консультационные услуги — 1 247 062,51 ₽" in result
+    assert "Расход: Расходы на ИИ — 716 671,56 ₽" in result  # было .56
     assert "август 2026" in result
 
 
@@ -405,8 +405,8 @@ def test_format_transactions_plain_strips_trailing_zeros() -> None:
 
     assert result is not None
     assert "240 500 ₽" in result
-    assert "240 500.00" not in result
-    assert "1 247 062.51 ₽" in result  # значимая дробь не тронута
+    assert "240 500,00" not in result
+    assert "1 247 062,51 ₽" in result  # значимая дробь не тронута
 
 
 def test_format_transactions_plain_single_month_period() -> None:
@@ -438,7 +438,7 @@ def test_format_transactions_plain_custom_range() -> None:
 def test_format_numbers_ignores_decimal_part() -> None:
     """94,3201 не должно превращаться в 94,3 201."""
     assert nodes.format_numbers("94,3201 ₽") == "94,3201 ₽"
-    assert nodes.format_numbers("83.4839 ₽") == "83.4839 ₽"
+    assert nodes.format_numbers("83.4839 ₽") == "83,4839 ₽"
 
 
 async def test_format_answer_count_intent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -485,3 +485,100 @@ async def test_format_answer_not_found_skips_retry_hint() -> None:
     )
     assert "Попробуйте позже" not in result["answer"]
     assert "Объект не найден" in result["answer"]
+
+
+def test_format_numbers_decimal_comma_before_currency() -> None:
+    """Десятичная точка перед ₽ или % меняется на запятую."""
+    assert nodes.format_numbers("2 056 081.06 ₽") == "2 056 081,06 ₽"
+    assert nodes.format_numbers("1234.56 ₽") == "1 234,56 ₽"
+
+
+def test_format_numbers_keeps_dot_outside_currency() -> None:
+    """Точка вне контекста ₽/% не трогается."""
+    assert nodes.format_numbers("версия 1.2") == "версия 1.2"
+    assert nodes.format_numbers("1234.56 руб") == "1 234.56 руб"
+
+
+def test_format_top_projects_plain_profit() -> None:
+    data = {
+        "metric": "profit",
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "items": [
+            {"project_name": "A", "metric_value": 100.5},
+            {"project_name": "B", "metric_value": 50},
+        ],
+    }
+    result = nodes._format_top_projects_plain(data)
+
+    assert result is not None
+    assert "Топ-2 проектов по прибыли за август 2026:" in result
+    assert "• A — прибыль 100,5 ₽" in result
+    assert "• B — прибыль 50 ₽" in result
+
+
+def test_format_top_projects_plain_profitability() -> None:
+    data = {
+        "metric": "profitability",
+        "date_from": "2026-05-01",
+        "date_to": "2026-05-31",
+        "items": [
+            {"project_name": "A", "metric_value": 25.5},
+            {"project_name": "B", "metric_value": 12.75},
+        ],
+    }
+    result = nodes._format_top_projects_plain(data)
+
+    assert result is not None
+    assert "Топ-2 проектов по рентабельности за май 2026:" in result
+    assert "• A — рентабельность 25,50%" in result
+    assert "• B — рентабельность 12,75%" in result
+
+
+def test_format_top_projects_plain_income_no_period() -> None:
+    data = {
+        "metric": "income",
+        "date_from": None,
+        "date_to": None,
+        "items": [{"project_name": "A", "metric_value": 1000}],
+    }
+    result = nodes._format_top_projects_plain(data)
+
+    assert result is not None
+    assert "Топ-1 проектов по доходу:" in result
+    assert "• A — доход 1 000 ₽" in result
+
+
+def test_format_top_projects_plain_empty_returns_none() -> None:
+    assert nodes._format_top_projects_plain({"items": []}) is None
+    assert nodes._format_top_projects_plain(None) is None
+
+
+async def test_format_answer_top_n_uses_python_formatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """intent=top_n → LLM не вызывается."""
+
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться для top_n")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {
+            "question": "Топ-3 проекта",
+            "intent": "top_n",
+            "data": {
+                "metric": "profit",
+                "date_from": "2026-08-01",
+                "date_to": "2026-08-31",
+                "items": [
+                    {"project_name": "Alpha", "metric_value": 1000000.0},
+                    {"project_name": "Beta", "metric_value": 500000.0},
+                ],
+            },
+        }
+    )
+
+    assert "Топ-2 проектов по прибыли" in result["answer"]
+    assert "Alpha — прибыль 1 000 000 ₽" in result["answer"]

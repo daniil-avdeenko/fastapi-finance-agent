@@ -28,9 +28,7 @@ def _friendly_http_error(status: int) -> str:
 
 
 async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
-    """
-    GET-запрос к основному проекту.
-    """
+    """GET-запрос к основному проекту."""
     settings = get_settings()
     url = f"{settings.main_api_url.rstrip('/')}{path}"
 
@@ -46,6 +44,11 @@ async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
             raise MainAPIError("Основной сервис недоступен.") from exc
 
         return response.json()
+
+
+# ============================================================
+#   Базовые tools
+# ============================================================
 
 
 async def get_summary(*, date_from: str | None = None, date_to: str | None = None) -> Any:
@@ -77,9 +80,7 @@ async def get_transactions(
     page: int = 1,
     per_page: int = 20,
 ) -> Any:
-    """
-    Транзакции с фильтрами и пагинацией.
-    """
+    """Транзакции с фильтрами и пагинацией."""
     params: dict[str, Any] = {"page": page, "per_page": per_page}
     for key, value in (
         ("type", type),
@@ -96,6 +97,11 @@ async def get_transactions(
 async def get_currency_rates() -> Any:
     """Курсы валют ЦБ на последнюю доступную дату."""
     return await _get("/api/v1/currencies")
+
+
+# ============================================================
+#   Агрегация
+# ============================================================
 
 
 def _extract_items(data: Any) -> list[dict[str, Any]]:
@@ -118,9 +124,7 @@ async def get_transactions_all(
     date_to: str | None = None,
     max_pages: int = 10,
 ) -> list[dict[str, Any]]:
-    """
-    Забирает ВСЕ транзакции по фильтрам, итерируя пагинацию.
-    """
+    """Забирает ВСЕ транзакции по фильтрам, итерируя пагинацию."""
     all_items: list[dict[str, Any]] = []
     page = 1
     per_page = 100
@@ -163,9 +167,7 @@ async def aggregate_transactions(
     date_to: str | None = None,
     project_id: int | None = None,
 ) -> dict[str, Any]:
-    """
-    Агрегирует транзакции по проектам за период.
-    """
+    """Агрегирует транзакции по проектам за период."""
     items = await get_transactions_all(
         type=type,
         project_id=project_id,
@@ -212,9 +214,7 @@ async def aggregate_profit(
     date_to: str | None = None,
     project_id: int | None = None,
 ) -> dict[str, Any]:
-    """
-    Прибыль и рентабельность по проектам за период.
-    """
+    """Прибыль и рентабельность по проектам за период."""
     income = await aggregate_transactions(
         type="income", date_from=date_from, date_to=date_to, project_id=project_id
     )
@@ -298,10 +298,70 @@ async def count_transactions(
     }
 
 
+async def top_projects(
+    *,
+    n: int | None = None,
+    metric: str = "profit",
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """
+    Топ-N проектов по метрике за период.
+
+    metric: "profit" (прибыль в ₽), "income" (доход в ₽),
+    "profitability" (рентабельность в %).
+    n: None → все доступные проекты (верхний предел — 10).
+
+    Сортировка в Python: LLM путает порядок чисел на списках и может
+    переставить соседние проекты. Для ответа «топ-3» это критично.
+    """
+    max_n = 10
+    n = max_n if n is None else max(1, min(int(n), max_n))
+
+    if metric == "income":
+        income = await aggregate_transactions(type="income", date_from=date_from, date_to=date_to)
+        items = [
+            {
+                "project_id": p["project_id"],
+                "project_name": p["project_name"],
+                "metric_value": p["total_rub"],
+            }
+            for p in income["by_project"]
+        ]
+    else:
+        profit_data = await aggregate_profit(date_from=date_from, date_to=date_to)
+        items = []
+        for p in profit_data["by_project"]:
+            if metric == "profitability":
+                value = p.get("profitability_percent") or 0.0
+            else:  # profit
+                value = p.get("profit_rub", 0.0)
+            items.append(
+                {
+                    "project_id": p["project_id"],
+                    "project_name": p["project_name"],
+                    "metric_value": value,
+                }
+            )
+
+    sorted_items = sorted(items, key=lambda x: x["metric_value"], reverse=True)
+
+    return {
+        "n": n,
+        "metric": metric,
+        "date_from": date_from,
+        "date_to": date_to,
+        "items": sorted_items[:n],
+    }
+
+
+# ============================================================
+#   Роутер
+# ============================================================
+
+
 async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
-    """
-    Роутер по intent → нужный tool.
-    """
+    """Роутер по intent → нужный tool."""
     params = params or {}
 
     match intent:
@@ -341,6 +401,11 @@ async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
             allowed = {"type", "project_id", "date_from", "date_to"}
             kwargs = {k: v for k, v in params.items() if k in allowed}
             return await count_transactions(**kwargs)
+
+        case "top_n":
+            allowed = {"n", "metric", "date_from", "date_to"}
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            return await top_projects(**kwargs)
 
         case _:
             raise MainAPIError(f"Неизвестный intent: {intent!r}")

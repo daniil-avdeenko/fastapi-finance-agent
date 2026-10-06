@@ -60,6 +60,13 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
   "чистая прибыль", "выручка минус расходы".
   params: date_from, date_to ("YYYY-MM-DD"), project_id (int, опционально).
 
+- "top_n" — топ N проектов по метрике за период.
+  Используй, если вопрос содержит: "топ", "топ-N", "лучшие",
+  "самые прибыльные", "наибольшая прибыль", "лидеры".
+  params: n (int, опционально — если не указано, вернём все проекты),
+  metric ("profit" | "income" | "profitability", по умолчанию "profit"),
+  date_from, date_to ("YYYY-MM-DD").
+
 - "unknown" — вопрос не относится к финансам проектов.
 
 ПРАВИЛА:
@@ -123,6 +130,9 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 "Прибыль по проектам за май" → {"intent": "profit", "params": {"date_from": "2026-05-01", "date_to": "2026-05-31"}}
 "Какая погода?" → {"intent": "unknown", "params": {}}
 "Сколько транзакций в августе по проекту 1" → {"intent": "count", "params": {"project_id": 1, "date_from": "2026-08-01", "date_to": "2026-08-31"}}
+"Топ-3 проекта по прибыли за август" → {"intent": "top_n", "params": {"n": 3, "metric": "profit", "date_from": "2026-08-01", "date_to": "2026-08-31"}}
+"Самые прибыльные проекты за май" → {"intent": "top_n", "params": {"metric": "profit", "date_from": "2026-05-01", "date_to": "2026-05-31"}}
+"Топ-5 по доходу за август" → {"intent": "top_n", "params": {"n": 5, "metric": "income", "date_from": "2026-08-01", "date_to": "2026-08-31"}}
 """
 
 
@@ -187,6 +197,10 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 # 37,9% → 37,90%; 22,756% → 22,76%
 _PERCENT_RE = re.compile(r"(\d+)[.,](\d+)%")
 
+# Десятичная точка перед символом валюты или процента → запятая.
+# Русский формат: 2 056 081,06 ₽ вместо 2 056 081.06 ₽.
+_DECIMAL_DOT_RE = re.compile(r"(\d)\.(\d+)(?=\s*[₽%])")
+
 
 def _fix_percent(match: re.Match[str]) -> str:
     whole = match.group(1)
@@ -207,8 +221,10 @@ _NUMBER_RE = re.compile(r"(?<![\d.,])(\d{4,})([.,]\d+)?(?!\d)")
 
 def format_numbers(text: str) -> str:
     """
-    Приводит числа в тексте к виду '1 234 567.89'.
+    Приводит числа в тексте к виду '1 234 567,89'.
 
+    - Разделители тысяч — пробелы.
+    - Десятичный разделитель перед ₽ или % — запятая.
     - Убирает .0 / ,0 у целых (1234.0 → 1 234).
     - Схлопывает уже расставленные пробелы перед форматированием
       (14 450 744.0 → 14 450 744), чтобы работать с идемпотентным входом.
@@ -231,7 +247,9 @@ def format_numbers(text: str) -> str:
         return f"{grouped}{frac}"
 
     text = _PERCENT_RE.sub(_fix_percent, text)
-    return _NUMBER_RE.sub(repl, text)
+    text = _NUMBER_RE.sub(repl, text)
+    text = _DECIMAL_DOT_RE.sub(r"\1,\2", text)
+    return text
 
 
 def _extract_json(raw: str) -> dict[str, Any]:
@@ -276,6 +294,19 @@ _MONTH_NAMES = [
     "ноябрь",
     "декабрь",
 ]
+
+_METRIC_LABELS = {
+    "profit": "прибыль",
+    "income": "доход",
+    "profitability": "рентабельность",
+}
+
+# Для заголовка «топ по …»
+_METRIC_LABELS_ABOUT = {
+    "profit": "прибыли",
+    "income": "доходу",
+    "profitability": "рентабельности",
+}
 
 
 def _human_date(iso: str) -> str:
@@ -373,6 +404,37 @@ def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
     return format_numbers("\n".join(lines))
 
 
+def _format_top_projects_plain(data: Any) -> str | None:
+    """
+    Собирает ответ для intent='top_n' без LLM.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    items = data.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+
+    metric = data.get("metric", "profit")
+    metric_label = _METRIC_LABELS.get(metric, metric)
+    metric_about = _METRIC_LABELS_ABOUT.get(metric, metric)
+    period = _human_period(data.get("date_from") or "", data.get("date_to") or "")
+
+    header = f"Топ-{len(items)} проектов по {metric_about}"
+    if period:
+        header += f" за {period}"
+    header += ":"
+
+    lines = [header, ""]
+    for p in items:
+        name = p.get("project_name") or "—"
+        value = p.get("metric_value", 0)
+        value_str = f"{value}%" if metric == "profitability" else f"{value} ₽"
+        lines.append(f"• {name} — {metric_label} {value_str}")
+
+    return format_numbers("\n".join(lines))
+
+
 async def understand_node(state: AgentState) -> dict[str, Any]:
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     system = UNDERSTAND_SYSTEM_PROMPT.replace("{today}", today)
@@ -445,6 +507,12 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
 
     if state.get("intent") == "transactions":
         formatted = _format_transactions_plain(state.get("data"), state.get("params") or {})
+        if formatted is not None:
+            return {"answer": formatted}
+        return {"answer": "В данных нет информации."}
+
+    if state.get("intent") == "top_n":
+        formatted = _format_top_projects_plain(state.get("data"))
         if formatted is not None:
             return {"answer": formatted}
         return {"answer": "В данных нет информации."}
