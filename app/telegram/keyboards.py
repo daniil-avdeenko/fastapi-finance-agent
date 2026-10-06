@@ -6,9 +6,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 QUICK_ACTIONS: dict[str, str] = {
     "summary": "Сводка по финансам",
-    "profit": "Прибыль по проектам за последний месяц",
+    "profit": "Прибыль по проектам за прошлый месяц",
     "projects": "Список проектов",
-    "transactions": "Транзакции за последний месяц",
+    "transactions": "Транзакции за прошлый месяц",
     "currencies": "Курсы валют",
     "help": "help",
 }
