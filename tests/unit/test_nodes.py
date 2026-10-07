@@ -739,7 +739,7 @@ def test_format_aggregate_plain_expense_single() -> None:
 
 
 def test_format_aggregate_plain_no_type() -> None:
-    """Без type — заголовок «Сумма»."""
+    """Без type и периода — заголовок «Суммы за всё время»."""
     data = {
         "date_from": None,
         "date_to": None,
@@ -754,7 +754,7 @@ def test_format_aggregate_plain_no_type() -> None:
     result = nodes._format_aggregate_plain(data)
 
     assert result is not None
-    assert "Сумма:" in result
+    assert "Сумма за всё время:" in result
     assert "Сумма по проектам:" in result
 
 
@@ -860,26 +860,6 @@ async def test_format_answer_hides_llm_credits_error() -> None:
     assert "временно" in result["answer"].lower()
 
 
-def test_format_profitability_plain_multiple() -> None:
-    data = {
-        "date_from": "2026-06-01",
-        "date_to": "2026-06-30",
-        "grand_profitability_percent": 25.73,
-        "by_project": [
-            {"project_name": "A", "profitability_percent": 33.08},
-            {"project_name": "B", "profitability_percent": 21.24},
-        ],
-    }
-    result = nodes._format_profitability_plain(data)
-
-    assert result is not None
-    assert "Рентабельность за июнь 2026:" in result
-    assert "• Общая: 25,73%" in result
-    assert "По проектам:" in result
-    assert "• A — 33,08%" in result
-    assert "• B — 21,24%" in result
-
-
 def test_format_profitability_plain_single() -> None:
     data = {
         "date_from": "2026-06-01",
@@ -893,7 +873,8 @@ def test_format_profitability_plain_single() -> None:
 
     assert result is not None
     assert "Рентабельность проекта A за июнь 2026:" in result
-    assert "• Общая: 33,08%" in result
+    assert "33,08%" in result
+    assert "Общая" not in result
     assert "По проектам" not in result
 
 
@@ -927,3 +908,21 @@ async def test_format_answer_profitability_uses_python_formatter(
 
     assert "Рентабельность проекта A за июнь 2026" in result["answer"]
     assert "Доход" not in result["answer"]  # денежных показателей нет
+
+
+def test_format_profitability_plain_all_time() -> None:
+    """Без периода — заголовок «за всё время», а не пустота."""
+    data = {
+        "date_from": None,
+        "date_to": None,
+        "grand_profitability_percent": 23.04,
+        "by_project": [
+            {"project_name": "Gamma", "profitability_percent": 23.04},
+        ],
+    }
+    result = nodes._format_profitability_plain(data)
+
+    assert result is not None
+    assert "за всё время" in result
+    assert "23,04%" in result
+    assert "Общая" not in result

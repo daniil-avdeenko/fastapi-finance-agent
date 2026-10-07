@@ -366,6 +366,14 @@ def _human_period(date_from: str, date_to: str) -> str:
     return f"с {_human_date(date_from)} по {_human_date(date_to)}"
 
 
+def _period_or_all_time(date_from: str, date_to: str) -> str:
+    """
+    Период или 'за всё время', если оба параметра пустые.
+    """
+    period = _human_period(date_from, date_to)
+    return period if period else "всё время"
+
+
 def _pluralize_transactions(n: int) -> str:
     """N транзакций в правильной форме."""
     if 10 <= n % 100 <= 20:
@@ -538,16 +546,17 @@ def _format_profitability_plain(data: Any) -> str | None:
     if not isinstance(by_project, list) or not by_project:
         return None
 
-    period = _human_period(data.get("date_from") or "", data.get("date_to") or "")
+    period = _period_or_all_time(data.get("date_from") or "", data.get("date_to") or "")
 
     if len(by_project) == 1:
         name = by_project[0].get("project_name") or "проект"
-        header = f"Рентабельность проекта {name}"
-    else:
-        header = "Рентабельность"
-    if period:
-        header += f" за {period}"
-    header += ":"
+        header = f"Рентабельность проекта {name} за {period}:"
+
+        profitability = by_project[0].get("profitability_percent")
+        value_line = f"{profitability}%" if profitability is not None else "нет данных"
+        return format_numbers(f"{header}\n\n{value_line}")
+
+    header = f"Рентабельность за {period}:"
 
     lines = [header, ""]
 
@@ -555,16 +564,15 @@ def _format_profitability_plain(data: Any) -> str | None:
     if grand_profitability is not None:
         lines.append(f"• Общая: {grand_profitability}%")
 
-    if len(by_project) > 1:
-        lines.append("")
-        lines.append("По проектам:")
-        for p in by_project:
-            name = p.get("project_name") or "—"
-            profitability = p.get("profitability_percent")
-            if profitability is None:
-                lines.append(f"• {name} — нет данных")
-            else:
-                lines.append(f"• {name} — {profitability}%")
+    lines.append("")
+    lines.append("По проектам:")
+    for p in by_project:
+        name = p.get("project_name") or "—"
+        profitability = p.get("profitability_percent")
+        if profitability is None:
+            lines.append(f"• {name} — нет данных")
+        else:
+            lines.append(f"• {name} — {profitability}%")
 
     return format_numbers("\n".join(lines))
 
@@ -585,7 +593,7 @@ def _format_aggregate_plain(data: Any) -> str | None:
     type_ = data.get("type")
     type_plural = {"income": "Доходы", "expense": "Расходы"}.get(type_ or "", "Сумма")
 
-    period = _human_period(data.get("date_from") or "", data.get("date_to") or "")
+    period = _period_or_all_time(data.get("date_from") or "", data.get("date_to") or "")
 
     if len(by_project) == 1:
         name = by_project[0].get("project_name") or "проект"
@@ -735,7 +743,7 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
             parts.append("доходных")
         elif data.get("type") == "expense":
             parts.append("расходных")
-        period = _human_period(data.get("date_from") or "", data.get("date_to") or "")
+        period = _period_or_all_time(data.get("date_from") or "", data.get("date_to") or "")
         if period:
             parts.append(period)
         suffix = f" ({', '.join(parts)})" if parts else ""
