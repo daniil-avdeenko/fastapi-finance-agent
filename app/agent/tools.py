@@ -407,5 +407,10 @@ async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
             kwargs = {k: v for k, v in params.items() if k in allowed}
             return await top_projects(**kwargs)
 
+        case "profitability":
+            allowed = {"date_from", "date_to", "project_id"}
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            return await aggregate_profit(**kwargs)
+
         case _:
             raise MainAPIError(f"Неизвестный intent: {intent!r}")
