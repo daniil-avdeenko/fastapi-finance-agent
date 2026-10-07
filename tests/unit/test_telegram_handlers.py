@@ -73,6 +73,8 @@ async def test_cmd_help_lists_intents() -> None:
     assert "Прибыль" in text
     assert "Транзакции" in text
     assert "Курсы валют" in text
+    assert "Топ-N" in text
+    assert "демонстрационные" in text.lower()
 
 
 async def test_handle_question_calls_agent_service(

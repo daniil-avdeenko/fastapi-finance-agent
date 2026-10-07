@@ -5,6 +5,10 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+> **Демо-данные.** Бот работает с публичной демонстрационной базой системы
+> [project-finance](https://github.com/daniil-avdeenko/project-finance).
+> Все проекты, компании и сотрудники вымышлены, а совпадения - случайны.
+
 Telegram AI-агент для системы [project-finance](https://github.com/daniil-avdeenko/project-finance).
 Отвечает на вопросы о проектах и финансах на естественном языке.
 
