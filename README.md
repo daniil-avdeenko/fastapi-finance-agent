@@ -9,6 +9,8 @@
 > [project-finance](https://github.com/daniil-avdeenko/project-finance).
 > Все проекты, компании и сотрудники вымышлены, а совпадения - случайны.
 
+📱 **Telegram-бот:** [@FinanceAgentBot](https://t.me/project_finance_agent_bot)
+
 Telegram AI-агент для системы [project-finance](https://github.com/daniil-avdeenko/project-finance).
 Отвечает на вопросы о проектах и финансах на естественном языке.
 
@@ -75,6 +77,21 @@ HTTP-запрос к публичному API основного проекта 
 LLM: на плоских повторяющихся данных модель путает поля соседних записей.
 Числа форматируются единообразно — разделители тысяч, `₽`, проценты с
 двумя знаками, формат дат `DD.MM.YYYY`.
+
+## Примеры диалога
+
+<table>
+<tr>
+<td><img src="docs/screenshots/start.png" width="320" alt="Стартовый экран"></td>
+<td><img src="docs/screenshots/profit.png" width="320" alt="Прибыль по проектам"></td>
+<td><img src="docs/screenshots/top-n.png" width="320" alt="Топ-N проектов"></td>
+</tr>
+<tr>
+<td align="center"><sub>Стартовый экран с кнопками</sub></td>
+<td align="center"><sub>Прибыль по проектам</sub></td>
+<td align="center"><sub>Топ проектов</sub></td>
+</tr>
+</table>
 
 ## Стек
 
@@ -201,6 +218,11 @@ TELEGRAM_WEBHOOK_SECRET=<random>
 TELEGRAM_RATE_LIMIT=10
 TELEGRAM_RATE_WINDOW=60
 ```
+
+Бот работает в продакшене: [@FinanceAgentBot](https://t.me/project_finance_agent_bot).
+Напишите `/start`, затем — любой вопрос. Например: «Сводка за август»
+или «Топ-3 проекта по прибыли за июль».
+Проверить работоспособность сервиса на Railway. [`/health`](https://fastapi-finance-agent-production.up.railway.app/health)
 
 ## Тесты
 
