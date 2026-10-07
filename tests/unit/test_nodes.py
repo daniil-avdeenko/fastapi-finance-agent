@@ -164,7 +164,8 @@ async def test_format_answer_short_circuits_on_error(monkeypatch: pytest.MonkeyP
 
     result = await nodes.format_answer_node({"question": "q", "error": "timeout"})
 
-    assert "timeout" in result["answer"]
+    assert "превышено" in result["answer"].lower()
+    assert "timeout" not in result["answer"]
 
 
 async def test_understand_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -191,7 +192,7 @@ async def test_format_answer_handles_llm_error(monkeypatch: pytest.MonkeyPatch) 
 
     result = await nodes.format_answer_node({"question": "q", "data": {}})
 
-    assert "timeout" in result["answer"]
+    assert "превышено" in result["answer"].lower()
 
 
 async def test_query_data_skips_when_error_present(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -520,7 +521,7 @@ def test_format_top_projects_plain_profit() -> None:
 
     assert result is not None
     assert "Топ-2 проектов по прибыли за август 2026:" in result
-    assert "• A — прибыль 100,5 ₽" in result
+    assert "• A — прибыль 100,50 ₽" in result  # было 100,5
     assert "• B — прибыль 50 ₽" in result
 
 
@@ -707,9 +708,9 @@ def test_format_aggregate_plain_income_multiple() -> None:
     result = nodes._format_aggregate_plain(data)
 
     assert result is not None
-    assert "Доход за август 2026:" in result
+    assert "Доходы за август 2026:" in result
     assert "• Всего: 20 492 003,65 ₽ (120 транзакций)" in result
-    assert "Доход по проектам:" in result
+    assert "Доходы по проектам:" in result
     assert "• A — 5 708 474,65 ₽ (25 транзакций)" in result
 
 
@@ -732,9 +733,8 @@ def test_format_aggregate_plain_expense_single() -> None:
     result = nodes._format_aggregate_plain(data)
 
     assert result is not None
-    assert "Расход по проекту Alpha за август 2026:" in result
+    assert "Расходы по проекту Alpha за август 2026:" in result
     assert "• Всего: 240 500 ₽ (1 транзакция)" in result
-    # Для одного проекта нет разбивки
     assert "По проектам" not in result
 
 
@@ -827,4 +827,103 @@ async def test_format_answer_aggregate_uses_python_formatter(
         }
     )
 
-    assert "Доход по проекту A за июль 2026:" in result["answer"]
+    assert "Доходы по проекту A за июль 2026:" in result["answer"]
+
+
+def test_humanize_error_llm_credits() -> None:
+    msg = "LLM error: Error code: 402 - credits in_flight"
+    assert "временно недоступен" in nodes._humanize_error(msg).lower()
+
+
+def test_humanize_error_rate_limit() -> None:
+    assert "минуту" in nodes._humanize_error("429 rate limit exceeded").lower()
+
+
+def test_humanize_error_timeout() -> None:
+    assert "превышено" in nodes._humanize_error("Request timed out").lower()
+
+
+def test_humanize_error_unknown_returns_empty() -> None:
+    assert nodes._humanize_error("Объект не найден") == ""
+    assert nodes._humanize_error("Что-то другое") == ""
+
+
+async def test_format_answer_hides_llm_credits_error() -> None:
+    error = (
+        "LLM error: Error code: 402 - {'error': {'message': "
+        "'This request would exceed your available credits'}}"
+    )
+    result = await nodes.format_answer_node({"question": "q", "error": error, "data": None})
+
+    assert "402" not in result["answer"]
+    assert "credits" not in result["answer"].lower()
+    assert "временно" in result["answer"].lower()
+
+
+def test_format_profitability_plain_multiple() -> None:
+    data = {
+        "date_from": "2026-06-01",
+        "date_to": "2026-06-30",
+        "grand_profitability_percent": 25.73,
+        "by_project": [
+            {"project_name": "A", "profitability_percent": 33.08},
+            {"project_name": "B", "profitability_percent": 21.24},
+        ],
+    }
+    result = nodes._format_profitability_plain(data)
+
+    assert result is not None
+    assert "Рентабельность за июнь 2026:" in result
+    assert "• Общая: 25,73%" in result
+    assert "По проектам:" in result
+    assert "• A — 33,08%" in result
+    assert "• B — 21,24%" in result
+
+
+def test_format_profitability_plain_single() -> None:
+    data = {
+        "date_from": "2026-06-01",
+        "date_to": "2026-06-30",
+        "grand_profitability_percent": 33.08,
+        "by_project": [
+            {"project_name": "A", "profitability_percent": 33.08},
+        ],
+    }
+    result = nodes._format_profitability_plain(data)
+
+    assert result is not None
+    assert "Рентабельность проекта A за июнь 2026:" in result
+    assert "• Общая: 33,08%" in result
+    assert "По проектам" not in result
+
+
+def test_format_profitability_plain_empty_returns_none() -> None:
+    assert nodes._format_profitability_plain({"by_project": []}) is None
+    assert nodes._format_profitability_plain(None) is None
+
+
+async def test_format_answer_profitability_uses_python_formatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться для profitability")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {
+            "question": "Рентабельность за июнь",
+            "intent": "profitability",
+            "data": {
+                "date_from": "2026-06-01",
+                "date_to": "2026-06-30",
+                "grand_profitability_percent": 25.73,
+                "by_project": [
+                    {"project_name": "A", "profitability_percent": 33.08},
+                ],
+            },
+        }
+    )
+
+    assert "Рентабельность проекта A за июнь 2026" in result["answer"]
+    assert "Доход" not in result["answer"]  # денежных показателей нет
