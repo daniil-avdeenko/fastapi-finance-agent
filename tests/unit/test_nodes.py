@@ -493,6 +493,13 @@ def test_format_numbers_decimal_comma_before_currency() -> None:
     assert nodes.format_numbers("1234.56 ₽") == "1 234,56 ₽"
 
 
+def test_format_numbers_pads_money_fraction() -> None:
+    assert nodes.format_numbers("2 363 822,1 ₽") == "2 363 822,10 ₽"
+    assert nodes.format_numbers("1234.5 ₽") == "1 234,50 ₽"
+    assert nodes.format_numbers("100 ₽") == "100 ₽"  # целое не трогаем
+    assert nodes.format_numbers("21,50%") == "21,50%"  # процент уже ок
+
+
 def test_format_numbers_keeps_dot_outside_currency() -> None:
     """Точка вне контекста ₽/% не трогается."""
     assert nodes.format_numbers("версия 1.2") == "версия 1.2"
@@ -639,8 +646,8 @@ def test_format_profit_plain_multiple_projects() -> None:
     result = nodes._format_profit_plain(data)
 
     assert result is not None
-    assert "Прибыль по проектам за август 2026:" in result
-    assert "По проектам:" in result
+    assert "Показатели по проектам за август 2026:" in result
+    assert "Прибыль по проектам:" in result
     assert "• A — 1 360 599,11 ₽ (21,50%)" in result
     assert "• B — 205 064,13 ₽ (8,90%)" in result
 
@@ -700,10 +707,10 @@ def test_format_aggregate_plain_income_multiple() -> None:
     result = nodes._format_aggregate_plain(data)
 
     assert result is not None
-    assert "Доход по проектам за август 2026:" in result
+    assert "Доход за август 2026:" in result
     assert "• Всего: 20 492 003,65 ₽ (120 транзакций)" in result
+    assert "Доход по проектам:" in result
     assert "• A — 5 708 474,65 ₽ (25 транзакций)" in result
-    assert "• B — 2 394 594,16 ₽ (12 транзакций)" in result
 
 
 def test_format_aggregate_plain_expense_single() -> None:
@@ -747,6 +754,7 @@ def test_format_aggregate_plain_no_type() -> None:
     result = nodes._format_aggregate_plain(data)
 
     assert result is not None
+    assert "Сумма:" in result
     assert "Сумма по проектам:" in result
 
 

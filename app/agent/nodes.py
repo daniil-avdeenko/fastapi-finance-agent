@@ -200,6 +200,7 @@ _DECIMAL_DOT_RE = re.compile(r"(\d)\.(\d+)(?=\s*[₽%])")
 
 # ,0+ или .0+ перед ₽/% — убираем целиком.
 _DECIMAL_ZERO_RE = re.compile(r"(\d)[.,]0+(?=\s*[₽%])")
+_MONEY_FRAC_RE = re.compile(r"(\d)[.,](\d)(?=\s*₽)")
 
 
 def _fix_percent(match: re.Match[str]) -> str:
@@ -250,6 +251,7 @@ def format_numbers(text: str) -> str:
     text = _NUMBER_RE.sub(repl, text)
     text = _DECIMAL_DOT_RE.sub(r"\1,\2", text)
     text = _DECIMAL_ZERO_RE.sub(r"\1", text)
+    text = _MONEY_FRAC_RE.sub(r"\1,\g<2>0", text)
     return text
 
 
@@ -465,7 +467,7 @@ def _format_profit_plain(data: Any) -> str | None:
         name = by_project[0].get("project_name") or "проект"
         header = f"Проект {name}"
     else:
-        header = "Прибыль по проектам"
+        header = "Показатели по проектам"
     if period:
         header += f" за {period}"
     header += ":"
@@ -488,7 +490,7 @@ def _format_profit_plain(data: Any) -> str | None:
 
     if len(by_project) > 1:
         lines.append("")
-        lines.append("По проектам:")
+        lines.append("Прибыль по проектам:")
         for p in by_project:
             name = p.get("project_name") or "—"
             profit = p.get("profit_rub", 0)
@@ -504,8 +506,6 @@ def _format_profit_plain(data: Any) -> str | None:
 def _format_aggregate_plain(data: Any) -> str | None:
     """
     Собирает ответ для intent='aggregate' без LLM.
-
-    Формат: заголовок, итоговая сумма, разбивка по проектам.
     """
     if not isinstance(data, dict):
         return None
@@ -523,7 +523,7 @@ def _format_aggregate_plain(data: Any) -> str | None:
         name = by_project[0].get("project_name") or "проект"
         header = f"{type_label} по проекту {name}"
     else:
-        header = f"{type_label} по проектам"
+        header = type_label
     if period:
         header += f" за {period}"
     header += ":"
@@ -541,7 +541,7 @@ def _format_aggregate_plain(data: Any) -> str | None:
 
     if len(by_project) > 1:
         lines.append("")
-        lines.append("По проектам:")
+        lines.append(f"{type_label} по проектам:")
         for p in by_project:
             name = p.get("project_name") or "—"
             total = p.get("total_rub", 0)
