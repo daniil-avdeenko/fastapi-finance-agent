@@ -582,3 +582,241 @@ async def test_format_answer_top_n_uses_python_formatter(
 
     assert "Топ-2 проектов по прибыли" in result["answer"]
     assert "Alpha — прибыль 1 000 000 ₽" in result["answer"]
+
+
+def test_format_profit_plain_single_project() -> None:
+    data = {
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "grand_income_rub": 1_947_239.72,
+        "grand_expense_rub": 586_640.61,
+        "grand_profit_rub": 1_360_599.11,
+        "grand_profitability_percent": 69.9,
+        "by_project": [
+            {
+                "project_id": 1,
+                "project_name": "CRM для банка «Альфа»",
+                "income_rub": 1_947_239.72,
+                "expense_rub": 586_640.61,
+                "profit_rub": 1_360_599.11,
+                "profitability_percent": 69.9,
+            }
+        ],
+    }
+    result = nodes._format_profit_plain(data)
+
+    assert result is not None
+    assert "Проект CRM для банка «Альфа» за август 2026:" in result
+    assert "• Доход: 1 947 239,72 ₽" in result
+    assert "• Рентабельность: 69,90%" in result
+    # Для одного проекта нет блока «По проектам»
+    assert "По проектам" not in result
+
+
+def test_format_profit_plain_multiple_projects() -> None:
+    data = {
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "grand_income_rub": 20_492_003.65,
+        "grand_expense_rub": 15_393_544.83,
+        "grand_profit_rub": 5_098_458.82,
+        "grand_profitability_percent": 24.88,
+        "by_project": [
+            {
+                "project_id": 1,
+                "project_name": "A",
+                "profit_rub": 1_360_599.11,
+                "profitability_percent": 21.5,
+            },
+            {
+                "project_id": 2,
+                "project_name": "B",
+                "profit_rub": 205_064.13,
+                "profitability_percent": 8.9,
+            },
+        ],
+    }
+    result = nodes._format_profit_plain(data)
+
+    assert result is not None
+    assert "Прибыль по проектам за август 2026:" in result
+    assert "По проектам:" in result
+    assert "• A — 1 360 599,11 ₽ (21,50%)" in result
+    assert "• B — 205 064,13 ₽ (8,90%)" in result
+
+
+def test_format_profit_plain_without_profitability() -> None:
+    data = {
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "grand_income_rub": 0.0,
+        "grand_expense_rub": 100.0,
+        "grand_profit_rub": -100.0,
+        "grand_profitability_percent": None,
+        "by_project": [
+            {
+                "project_id": 1,
+                "project_name": "A",
+                "profit_rub": -100.0,
+                "profitability_percent": None,
+            }
+        ],
+    }
+    result = nodes._format_profit_plain(data)
+
+    assert result is not None
+    # Рентабельность не упоминается вовсе
+    assert "Рентабельность" not in result
+    assert "• Прибыль: -100 ₽" in result
+
+
+def test_format_profit_plain_empty_returns_none() -> None:
+    assert nodes._format_profit_plain({"by_project": []}) is None
+    assert nodes._format_profit_plain(None) is None
+
+
+def test_format_aggregate_plain_income_multiple() -> None:
+    data = {
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "type": "income",
+        "total_transactions": 120,
+        "grand_total_rub": 20_492_003.65,
+        "by_project": [
+            {
+                "project_id": 1,
+                "project_name": "A",
+                "total_rub": 5_708_474.65,
+                "count": 25,
+            },
+            {
+                "project_id": 2,
+                "project_name": "B",
+                "total_rub": 2_394_594.16,
+                "count": 12,
+            },
+        ],
+    }
+    result = nodes._format_aggregate_plain(data)
+
+    assert result is not None
+    assert "Доход по проектам за август 2026:" in result
+    assert "• Всего: 20 492 003,65 ₽ (120 транзакций)" in result
+    assert "• A — 5 708 474,65 ₽ (25 транзакций)" in result
+    assert "• B — 2 394 594,16 ₽ (12 транзакций)" in result
+
+
+def test_format_aggregate_plain_expense_single() -> None:
+    data = {
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "type": "expense",
+        "total_transactions": 1,
+        "grand_total_rub": 240_500.0,
+        "by_project": [
+            {
+                "project_id": 1,
+                "project_name": "Alpha",
+                "total_rub": 240_500.0,
+                "count": 1,
+            }
+        ],
+    }
+    result = nodes._format_aggregate_plain(data)
+
+    assert result is not None
+    assert "Расход по проекту Alpha за август 2026:" in result
+    assert "• Всего: 240 500 ₽ (1 транзакция)" in result
+    # Для одного проекта нет разбивки
+    assert "По проектам" not in result
+
+
+def test_format_aggregate_plain_no_type() -> None:
+    """Без type — заголовок «Сумма»."""
+    data = {
+        "date_from": None,
+        "date_to": None,
+        "type": None,
+        "total_transactions": 3,
+        "grand_total_rub": 300.0,
+        "by_project": [
+            {"project_id": 1, "project_name": "A", "total_rub": 200.0, "count": 2},
+            {"project_id": 2, "project_name": "B", "total_rub": 100.0, "count": 1},
+        ],
+    }
+    result = nodes._format_aggregate_plain(data)
+
+    assert result is not None
+    assert "Сумма по проектам:" in result
+
+
+def test_format_aggregate_plain_empty_returns_none() -> None:
+    assert nodes._format_aggregate_plain({"by_project": []}) is None
+    assert nodes._format_aggregate_plain(None) is None
+
+
+async def test_format_answer_profit_uses_python_formatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """intent=profit → LLM не вызывается."""
+
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться для profit")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {
+            "question": "Прибыль за август",
+            "intent": "profit",
+            "data": {
+                "date_from": "2026-08-01",
+                "date_to": "2026-08-31",
+                "grand_income_rub": 1000.0,
+                "grand_expense_rub": 300.0,
+                "grand_profit_rub": 700.0,
+                "grand_profitability_percent": 70.0,
+                "by_project": [
+                    {
+                        "project_id": 1,
+                        "project_name": "A",
+                        "profit_rub": 700.0,
+                        "profitability_percent": 70.0,
+                    }
+                ],
+            },
+        }
+    )
+
+    assert "Проект A за август 2026:" in result["answer"]
+    assert "• Прибыль: 700 ₽" in result["answer"]
+
+
+async def test_format_answer_aggregate_uses_python_formatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """intent=aggregate → LLM не вызывается."""
+
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться для aggregate")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {
+            "question": "Суммарный доход за июль",
+            "intent": "aggregate",
+            "data": {
+                "date_from": "2026-07-01",
+                "date_to": "2026-07-31",
+                "type": "income",
+                "total_transactions": 5,
+                "grand_total_rub": 1000.0,
+                "by_project": [
+                    {"project_id": 1, "project_name": "A", "total_rub": 1000.0, "count": 5},
+                ],
+            },
+        }
+    )
+
+    assert "Доход по проекту A за июль 2026:" in result["answer"]

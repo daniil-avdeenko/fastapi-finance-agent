@@ -17,7 +17,6 @@ from app.agent.tools import MainAPIError, dispatch
 
 logger = logging.getLogger(__name__)
 
-
 UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросов к финансовой системе компании.
 Проанализируй вопрос пользователя и верни JSON:
 {"intent": "<название>", "params": { ... }}
@@ -135,7 +134,6 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 "Топ-5 по доходу за август" → {"intent": "top_n", "params": {"n": 5, "metric": "income", "date_from": "2026-08-01", "date_to": "2026-08-31"}}
 """
 
-
 FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 
 Тебе дают вопрос и JSON с данными. Сформулируй ответ на русском языке.
@@ -193,13 +191,15 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
 - Максимум 5 предложений или короткий список. Без вступлений.
 """
 
-
 # 37,9% → 37,90%; 22,756% → 22,76%
 _PERCENT_RE = re.compile(r"(\d+)[.,](\d+)%")
 
 # Десятичная точка перед символом валюты или процента → запятая.
 # Русский формат: 2 056 081,06 ₽ вместо 2 056 081.06 ₽.
 _DECIMAL_DOT_RE = re.compile(r"(\d)\.(\d+)(?=\s*[₽%])")
+
+# ,0+ или .0+ перед ₽/% — убираем целиком.
+_DECIMAL_ZERO_RE = re.compile(r"(\d)[.,]0+(?=\s*[₽%])")
 
 
 def _fix_percent(match: re.Match[str]) -> str:
@@ -249,6 +249,7 @@ def format_numbers(text: str) -> str:
     text = _PERCENT_RE.sub(_fix_percent, text)
     text = _NUMBER_RE.sub(repl, text)
     text = _DECIMAL_DOT_RE.sub(r"\1,\2", text)
+    text = _DECIMAL_ZERO_RE.sub(r"\1", text)
     return text
 
 
@@ -354,6 +355,18 @@ def _human_period(date_from: str, date_to: str) -> str:
     return f"с {_human_date(date_from)} по {_human_date(date_to)}"
 
 
+def _pluralize_transactions(n: int) -> str:
+    """N транзакций в правильной форме."""
+    if 10 <= n % 100 <= 20:
+        return "транзакций"
+    last = n % 10
+    if last == 1:
+        return "транзакция"
+    if 2 <= last <= 4:
+        return "транзакции"
+    return "транзакций"
+
+
 def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
     """
     Собирает ответ для intent='transactions' без LLM.
@@ -431,6 +444,112 @@ def _format_top_projects_plain(data: Any) -> str | None:
         value = p.get("metric_value", 0)
         value_str = f"{value}%" if metric == "profitability" else f"{value} ₽"
         lines.append(f"• {name} — {metric_label} {value_str}")
+
+    return format_numbers("\n".join(lines))
+
+
+def _format_profit_plain(data: Any) -> str | None:
+    """
+    Собирает ответ для intent='profit' без LLM.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    by_project = data.get("by_project")
+    if not isinstance(by_project, list) or not by_project:
+        return None
+
+    period = _human_period(data.get("date_from") or "", data.get("date_to") or "")
+
+    if len(by_project) == 1:
+        name = by_project[0].get("project_name") or "проект"
+        header = f"Проект {name}"
+    else:
+        header = "Прибыль по проектам"
+    if period:
+        header += f" за {period}"
+    header += ":"
+
+    lines = [header, ""]
+
+    grand_income = data.get("grand_income_rub")
+    grand_expense = data.get("grand_expense_rub")
+    grand_profit = data.get("grand_profit_rub")
+    grand_profitability = data.get("grand_profitability_percent")
+
+    if grand_income is not None:
+        lines.append(f"• Доход: {grand_income} ₽")
+    if grand_expense is not None:
+        lines.append(f"• Расход: {grand_expense} ₽")
+    if grand_profit is not None:
+        lines.append(f"• Прибыль: {grand_profit} ₽")
+    if grand_profitability is not None:
+        lines.append(f"• Рентабельность: {grand_profitability}%")
+
+    if len(by_project) > 1:
+        lines.append("")
+        lines.append("По проектам:")
+        for p in by_project:
+            name = p.get("project_name") or "—"
+            profit = p.get("profit_rub", 0)
+            profitability = p.get("profitability_percent")
+            if profitability is not None:
+                lines.append(f"• {name} — {profit} ₽ ({profitability}%)")
+            else:
+                lines.append(f"• {name} — {profit} ₽")
+
+    return format_numbers("\n".join(lines))
+
+
+def _format_aggregate_plain(data: Any) -> str | None:
+    """
+    Собирает ответ для intent='aggregate' без LLM.
+
+    Формат: заголовок, итоговая сумма, разбивка по проектам.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    by_project = data.get("by_project")
+    if not isinstance(by_project, list) or not by_project:
+        return None
+
+    type_ = data.get("type")
+    type_label = {"income": "Доход", "expense": "Расход"}.get(type_ or "", "Сумма")
+
+    period = _human_period(data.get("date_from") or "", data.get("date_to") or "")
+
+    if len(by_project) == 1:
+        name = by_project[0].get("project_name") or "проект"
+        header = f"{type_label} по проекту {name}"
+    else:
+        header = f"{type_label} по проектам"
+    if period:
+        header += f" за {period}"
+    header += ":"
+
+    lines = [header, ""]
+
+    grand_total = data.get("grand_total_rub")
+    total_tx = data.get("total_transactions")
+
+    if grand_total is not None:
+        line = f"• Всего: {grand_total} ₽"
+        if total_tx:
+            line += f" ({total_tx} {_pluralize_transactions(total_tx)})"
+        lines.append(line)
+
+    if len(by_project) > 1:
+        lines.append("")
+        lines.append("По проектам:")
+        for p in by_project:
+            name = p.get("project_name") or "—"
+            total = p.get("total_rub", 0)
+            count = p.get("count")
+            line = f"• {name} — {total} ₽"
+            if count:
+                line += f" ({count} {_pluralize_transactions(count)})"
+            lines.append(line)
 
     return format_numbers("\n".join(lines))
 
@@ -513,6 +632,18 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
 
     if state.get("intent") == "top_n":
         formatted = _format_top_projects_plain(state.get("data"))
+        if formatted is not None:
+            return {"answer": formatted}
+        return {"answer": "В данных нет информации."}
+
+    if state.get("intent") == "profit":
+        formatted = _format_profit_plain(state.get("data"))
+        if formatted is not None:
+            return {"answer": formatted}
+        return {"answer": "В данных нет информации."}
+
+    if state.get("intent") == "aggregate":
+        formatted = _format_aggregate_plain(state.get("data"))
         if formatted is not None:
             return {"answer": formatted}
         return {"answer": "В данных нет информации."}
