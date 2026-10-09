@@ -412,6 +412,8 @@ def _humanize_error(msg: str) -> str:
     вызывающий код решает сам, как её показать.
     """
     lowered = msg.lower()
+    if "403" in msg or "region" in lowered or "geo" in lowered:
+        return "Модель временно недоступна. Попробуйте позже."
     if "402" in msg or "credits" in lowered or "in_flight" in lowered:
         return "Сервис LLM временно недоступен. Попробуйте позже."
     if "429" in msg or "rate limit" in lowered:
