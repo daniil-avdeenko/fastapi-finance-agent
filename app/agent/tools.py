@@ -355,6 +355,110 @@ async def top_projects(
     }
 
 
+async def compare_periods(
+    *,
+    metric: str = "profit",
+    period1_from: str,
+    period1_to: str,
+    period2_from: str,
+    period2_to: str,
+    project_id: int | None = None,
+) -> dict[str, Any]:
+    """
+    Сравнивает два периода по метрике.
+
+    metric: "profit" (₽), "income" (₽), "expense" (₽),
+    "profitability" (%).
+
+    Возвращает значение для каждого периода, абсолютную дельту
+    и относительную в процентах.
+    """
+    if metric == "income":
+        p1 = await aggregate_transactions(
+            type="income", date_from=period1_from, date_to=period1_to, project_id=project_id
+        )
+        p2 = await aggregate_transactions(
+            type="income", date_from=period2_from, date_to=period2_to, project_id=project_id
+        )
+        value_key = "total_rub"
+    elif metric == "expense":
+        p1 = await aggregate_transactions(
+            type="expense", date_from=period1_from, date_to=period1_to, project_id=project_id
+        )
+        p2 = await aggregate_transactions(
+            type="expense", date_from=period2_from, date_to=period2_to, project_id=project_id
+        )
+        value_key = "total_rub"
+    else:  # profit, profitability
+        p1 = await aggregate_profit(
+            date_from=period1_from, date_to=period1_to, project_id=project_id
+        )
+        p2 = await aggregate_profit(
+            date_from=period2_from, date_to=period2_to, project_id=project_id
+        )
+        value_key = "profit_rub" if metric == "profit" else "profitability_percent"
+
+    def _grand(data: dict[str, Any]) -> float | None:
+        if metric == "profit":
+            return data.get("grand_profit_rub")
+        if metric == "profitability":
+            return data.get("grand_profitability_percent")
+        return data.get("grand_total_rub")
+
+    def _project_value(p: dict[str, Any]) -> float:
+        v = p.get(value_key)
+        return float(v) if v is not None else 0.0
+
+    def _delta(v1: float | None, v2: float | None) -> tuple[float, float | None]:
+        a = v1 or 0.0
+        b = v2 or 0.0
+        diff = round(b - a, 2)
+        pct = round(diff / a * 100, 2) if a else None
+        return diff, pct
+
+    p1_by_pid = {p["project_id"]: p for p in p1["by_project"]}
+    p2_by_pid = {p["project_id"]: p for p in p2["by_project"]}
+    all_pids = set(p1_by_pid) | set(p2_by_pid)
+
+    by_project: list[dict[str, Any]] = []
+    for pid in sorted(all_pids):
+        e1 = p1_by_pid.get(pid, {})
+        e2 = p2_by_pid.get(pid, {})
+        v1 = _project_value(e1) if e1 else 0.0
+        v2 = _project_value(e2) if e2 else 0.0
+        diff, pct = _delta(v1, v2)
+        by_project.append(
+            {
+                "project_id": pid,
+                "project_name": e1.get("project_name") or e2.get("project_name"),
+                "period1_value": v1,
+                "period2_value": v2,
+                "diff_abs": diff,
+                "diff_pct": pct,
+            }
+        )
+
+    # Сортируем по абсолютному изменению — самое интересное сверху.
+    by_project.sort(key=lambda x: abs(x["diff_abs"]), reverse=True)
+
+    g1 = _grand(p1)
+    g2 = _grand(p2)
+    diff_abs, diff_pct = _delta(g1, g2)
+
+    return {
+        "metric": metric,
+        "period1": {"date_from": period1_from, "date_to": period1_to},
+        "period2": {"date_from": period2_from, "date_to": period2_to},
+        "grand": {
+            "period1_value": g1,
+            "period2_value": g2,
+            "diff_abs": diff_abs,
+            "diff_pct": diff_pct,
+        },
+        "by_project": by_project,
+    }
+
+
 # ============================================================
 #   Роутер
 # ============================================================
@@ -411,6 +515,20 @@ async def dispatch(intent: str, params: dict[str, Any] | None = None) -> Any:
             allowed = {"date_from", "date_to", "project_id"}
             kwargs = {k: v for k, v in params.items() if k in allowed}
             return await aggregate_profit(**kwargs)
+
+        case "compare":
+            allowed = {
+                "metric",
+                "period1_from",
+                "period1_to",
+                "period2_from",
+                "period2_to",
+                "project_id",
+            }
+            kwargs = {k: v for k, v in params.items() if k in allowed}
+            if "period1_from" not in kwargs or "period2_from" not in kwargs:
+                raise MainAPIError("compare: не указаны оба периода")
+            return await compare_periods(**kwargs)
 
         case _:
             raise MainAPIError(f"Неизвестный intent: {intent!r}")
