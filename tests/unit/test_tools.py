@@ -439,3 +439,98 @@ async def test_dispatch_routes_top_n(base_url: str) -> None:
 
     assert result["n"] == 3
     assert result["metric"] == "income"
+
+
+@respx.mock
+async def test_compare_periods_profit(base_url: str) -> None:
+    """Считает дельту по прибыли между двумя периодами."""
+
+    def make_income(project_values: list[tuple[int, str, float]]) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"project_id": pid, "project_name": name, "amount_rub": v, "type": "income"}
+                    for pid, name, v in project_values
+                ]
+            },
+        )
+
+    def make_expense(project_values: list[tuple[int, str, float]]) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"project_id": pid, "project_name": name, "amount_rub": v, "type": "expense"}
+                    for pid, name, v in project_values
+                ]
+            },
+        )
+
+    # 4 вызова: period1 (income, expense), period2 (income, expense)
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        side_effect=[
+            make_income([(1, "A", 1000.0)]),
+            make_expense([(1, "A", 400.0)]),
+            make_income([(1, "A", 1500.0)]),
+            make_expense([(1, "A", 500.0)]),
+        ]
+    )
+
+    result = await tools.compare_periods(
+        metric="profit",
+        period1_from="2026-05-01",
+        period1_to="2026-05-31",
+        period2_from="2026-06-01",
+        period2_to="2026-06-30",
+    )
+
+    assert result["grand"]["period1_value"] == 600.0
+    assert result["grand"]["period2_value"] == 1000.0
+    assert result["grand"]["diff_abs"] == 400.0
+    assert result["grand"]["diff_pct"] == 66.67
+    assert result["by_project"][0]["project_name"] == "A"
+
+
+@respx.mock
+async def test_compare_periods_handles_missing_baseline(base_url: str) -> None:
+    """Если в period1 проекта нет — дельта считается от нуля, pct=None."""
+    respx.get(f"{base_url}/api/v1/transactions").mock(
+        side_effect=[
+            httpx.Response(200, json={"items": []}),  # p1 income
+            httpx.Response(200, json={"items": []}),  # p1 expense
+            httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "project_id": 1,
+                            "project_name": "A",
+                            "amount_rub": 1000.0,
+                            "type": "income",
+                        }
+                    ]
+                },
+            ),
+            httpx.Response(200, json={"items": []}),  # p2 expense
+        ]
+    )
+
+    result = await tools.compare_periods(
+        metric="profit",
+        period1_from="2026-05-01",
+        period1_to="2026-05-31",
+        period2_from="2026-06-01",
+        period2_to="2026-06-30",
+    )
+
+    entry = result["by_project"][0]
+    assert entry["period1_value"] == 0.0
+    assert entry["period2_value"] == 1000.0
+    assert entry["diff_abs"] == 1000.0
+    assert entry["diff_pct"] is None  # от нуля относительную не считаем
+
+
+async def test_compare_periods_requires_both_periods() -> None:
+    with pytest.raises(MainAPIError, match="оба периода"):
+        await tools.dispatch("compare", {"metric": "profit"})
