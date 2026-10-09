@@ -926,3 +926,135 @@ def test_format_profitability_plain_all_time() -> None:
     assert "за всё время" in result
     assert "23,04%" in result
     assert "Общая" not in result
+
+
+def test_format_compare_plain_profit_multiple() -> None:
+    data = {
+        "metric": "profit",
+        "period1": {"date_from": "2026-05-01", "date_to": "2026-05-31"},
+        "period2": {"date_from": "2026-06-01", "date_to": "2026-06-30"},
+        "grand": {
+            "period1_value": 5_433_209.90,
+            "period2_value": 5_204_475.81,
+            "diff_abs": -228_734.09,
+            "diff_pct": -4.21,
+        },
+        "by_project": [
+            {
+                "project_id": 1,
+                "project_name": "CRM для банка «Альфа»",
+                "period1_value": 2_085_868.56,
+                "period2_value": 1_789_702.27,
+                "diff_abs": -296_166.29,
+                "diff_pct": -14.20,
+            },
+            {
+                "project_id": 2,
+                "project_name": "Интеграция 1С",
+                "period1_value": 271_870.07,
+                "period2_value": 563_019.66,
+                "diff_abs": 291_149.59,
+                "diff_pct": 107.09,
+            },
+        ],
+    }
+    result = nodes._format_compare_plain(data)
+
+    assert result is not None
+    assert "Сравнение прибыли: май 2026 → июнь 2026" in result
+    assert "• Итого: 5 433 209,90 ₽ → 5 204 475,81 ₽ (-228 734,09 ₽, -4,21%)" in result
+    assert "По проектам:" in result
+    assert (
+        "• CRM для банка «Альфа»: 2 085 868,56 ₽ → 1 789 702,27 ₽ (-296 166,29 ₽, -14,20%)"
+        in result
+    )
+    assert "• Интеграция 1С: 271 870,07 ₽ → 563 019,66 ₽ (+291 149,59 ₽, +107,09%)" in result
+
+
+def test_format_compare_plain_profitability() -> None:
+    """Для рентабельности дельта в процентных пунктах, без относительной."""
+    data = {
+        "metric": "profitability",
+        "period1": {"date_from": "2026-05-01", "date_to": "2026-05-31"},
+        "period2": {"date_from": "2026-06-01", "date_to": "2026-06-30"},
+        "grand": {
+            "period1_value": 26.72,
+            "period2_value": 25.73,
+            "diff_abs": -0.99,
+            "diff_pct": -3.71,
+        },
+        "by_project": [
+            {
+                "project_id": 1,
+                "project_name": "A",
+                "period1_value": 38.12,
+                "period2_value": 33.08,
+                "diff_abs": -5.04,
+                "diff_pct": -13.22,
+            }
+        ],
+    }
+    result = nodes._format_compare_plain(data)
+
+    assert "Сравнение рентабельности:" in result
+    assert "(-0,99)" in result
+    # Относительная скобка не выводится для процентных метрик
+    assert "(-13,22%)" not in result
+    assert "(-3,71%)" not in result
+    assert "пп" not in result
+
+
+def test_format_compare_plain_income() -> None:
+    data = {
+        "metric": "income",
+        "period1": {"date_from": "2026-07-01", "date_to": "2026-07-31"},
+        "period2": {"date_from": "2026-08-01", "date_to": "2026-08-31"},
+        "grand": {
+            "period1_value": 21_361_381.60,
+            "period2_value": 20_492_003.65,
+            "diff_abs": -869_377.95,
+            "diff_pct": -4.07,
+        },
+        "by_project": [],
+    }
+    result = nodes._format_compare_plain(data)
+
+    assert result is not None
+    assert "Сравнение дохода: июль 2026 → август 2026" in result
+    # Один проект (или ноль) — без блока «По проектам»
+    assert "По проектам" not in result
+
+
+def test_format_compare_plain_empty_returns_none() -> None:
+    assert nodes._format_compare_plain(None) is None
+
+
+async def test_format_answer_compare_uses_python_formatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться для compare")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {
+            "question": "Сравни май и июнь",
+            "intent": "compare",
+            "data": {
+                "metric": "profit",
+                "period1": {"date_from": "2026-05-01", "date_to": "2026-05-31"},
+                "period2": {"date_from": "2026-06-01", "date_to": "2026-06-30"},
+                "grand": {
+                    "period1_value": 1000.0,
+                    "period2_value": 1200.0,
+                    "diff_abs": 200.0,
+                    "diff_pct": 20.0,
+                },
+                "by_project": [],
+            },
+        }
+    )
+
+    assert "Сравнение прибыли" in result["answer"]
+    assert "1 000 ₽ → 1 200 ₽ (+200 ₽, +20%)" in result["answer"]

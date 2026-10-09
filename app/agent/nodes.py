@@ -74,6 +74,14 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
   metric ("profit" | "income" | "profitability", по умолчанию "profit"),
   date_from, date_to ("YYYY-MM-DD").
 
+- "compare" — сравнение двух периодов по метрике.
+  Используй для вопросов: "сравни", "динамика", "как изменилось",
+  "что выросло", "больше/меньше чем".
+  params: metric ("profit"|"income"|"expense"|"profitability",
+  по умолчанию "profit"), period1_from, period1_to, period2_from,
+  period2_to ("YYYY-MM-DD"), project_id (int, опционально).
+  period1 — БАЗА, period2 — то, с чем сравниваем, обычно более поздний.
+
 - "unknown" — вопрос не относится к финансам проектов.
 
 ПРАВИЛА:
@@ -143,6 +151,9 @@ UNDERSTAND_SYSTEM_PROMPT = """Ты — классификатор вопросо
 "Топ-3 проекта по прибыли за август" → {"intent": "top_n", "params": {"n": 3, "metric": "profit", "date_from": "2026-08-01", "date_to": "2026-08-31"}}
 "Самые прибыльные проекты за май" → {"intent": "top_n", "params": {"metric": "profit", "date_from": "2026-05-01", "date_to": "2026-05-31"}}
 "Топ-5 по доходу за август" → {"intent": "top_n", "params": {"n": 5, "metric": "income", "date_from": "2026-08-01", "date_to": "2026-08-31"}}
+"Сравни прибыль за май и июнь" → {"intent": "compare", "params": {"metric": "profit", "period1_from": "2026-05-01", "period1_to": "2026-05-31", "period2_from": "2026-06-01", "period2_to": "2026-06-30"}}
+"Как изменился доход в августе по сравнению с июлем" → {"intent": "compare", "params": {"metric": "income", "period1_from": "2026-07-01", "period1_to": "2026-07-31", "period2_from": "2026-08-01", "period2_to": "2026-08-31"}}
+"Динамика расходов за квартал" → {"intent": "compare", "params": {"metric": "expense", "period1_from": "2026-07-01", "period1_to": "2026-07-31", "period2_from": "2026-08-01", "period2_to": "2026-09-30"}}
 """
 
 
@@ -209,7 +220,7 @@ _PERCENT_RE = re.compile(r"(\d+)[.,](\d+)%")
 
 # Десятичная точка перед символом валюты или процента → запятая.
 # Русский формат: 2 056 081,06 ₽ вместо 2 056 081.06 ₽.
-_DECIMAL_DOT_RE = re.compile(r"(\d)\.(\d+)(?=\s*[₽%])")
+_DECIMAL_DOT_RE = re.compile(r"(\d)\.(\d+)(?=\s*(?:[₽%]|пп))")
 
 # ,0+ или .0+ перед ₽/% — незначащий хвост, убираем.
 _DECIMAL_ZERO_RE = re.compile(r"(\d)[.,]0+(?=\s*[₽%])")
@@ -317,6 +328,13 @@ _METRIC_LABELS = {
 _METRIC_LABELS_ABOUT = {
     "profit": "прибыли",
     "income": "доходу",
+    "profitability": "рентабельности",
+}
+
+_METRIC_LABELS_COMPARE = {
+    "profit": "прибыли",
+    "income": "дохода",
+    "expense": "расходов",
     "profitability": "рентабельности",
 }
 
@@ -577,6 +595,101 @@ def _format_profitability_plain(data: Any) -> str | None:
     return format_numbers("\n".join(lines))
 
 
+def _period_label(date_from: str, date_to: str) -> str:
+    """'2026-05-01', '2026-05-31' → 'май 2026' (без предлога 'за')."""
+    period = _human_period(date_from, date_to)
+    if period.startswith("за "):
+        return period[3:]
+    return period or "весь период"
+
+
+def _fmt_number(value: float) -> str:
+    """-228734.09 → '-228734,09'. Точка → запятая, без пробелов."""
+    return str(value).replace(".", ",")
+
+
+def _compare_line(
+    *,
+    label: str,
+    v1: float | None,
+    v2: float | None,
+    diff_abs: float,
+    diff_pct: float | None,
+    is_percent: bool,
+) -> str | None:
+    """Форматирует строку сравнения: 'Итого: 100 ₽ → 120 ₽ (+20 ₽, +20%)'."""
+    if v1 is None and v2 is None:
+        return None
+
+    unit = "%" if is_percent else " ₽"
+    v1_str = f"{_fmt_number(v1)}{unit}" if v1 is not None else "—"
+    v2_str = f"{_fmt_number(v2)}{unit}" if v2 is not None else "—"
+
+    sign = "+" if diff_abs > 0 else ""
+    diff_abs_str = _fmt_number(diff_abs)
+    if is_percent:
+        diff_str = f"{sign}{diff_abs_str}"
+    else:
+        diff_str = f"{sign}{diff_abs_str} ₽"
+        if diff_pct is not None:
+            pct_sign = "+" if diff_pct > 0 else ""
+            diff_str += f", {pct_sign}{_fmt_number(diff_pct)}%"
+
+    return f"{label}: {v1_str} → {v2_str} ({diff_str})"
+
+
+def _format_compare_plain(data: Any) -> str | None:
+    """
+    Собирает ответ для intent='compare' без LLM.
+
+    Формат: «Сравнение метрики: период1 → период2», строка итога,
+    разбивка по проектам (если больше одного).
+    """
+    if not isinstance(data, dict):
+        return None
+
+    metric = data.get("metric", "profit")
+    metric_label = _METRIC_LABELS_COMPARE.get(metric, metric)
+    is_percent = metric == "profitability"
+
+    p1 = data.get("period1", {}) or {}
+    p2 = data.get("period2", {}) or {}
+    label1 = _period_label(p1.get("date_from") or "", p1.get("date_to") or "")
+    label2 = _period_label(p2.get("date_from") or "", p2.get("date_to") or "")
+
+    lines = [f"Сравнение {metric_label}: {label1} → {label2}", ""]
+
+    grand = data.get("grand", {}) or {}
+    grand_line = _compare_line(
+        label="Итого",
+        v1=grand.get("period1_value"),
+        v2=grand.get("period2_value"),
+        diff_abs=grand.get("diff_abs", 0),
+        diff_pct=grand.get("diff_pct"),
+        is_percent=is_percent,
+    )
+    if grand_line:
+        lines.append(f"• {grand_line}")
+
+    by_project = data.get("by_project") or []
+    if len(by_project) > 1:
+        lines.append("")
+        lines.append("По проектам:")
+        for p in by_project:
+            line = _compare_line(
+                label=p.get("project_name") or "—",
+                v1=p.get("period1_value"),
+                v2=p.get("period2_value"),
+                diff_abs=p.get("diff_abs", 0),
+                diff_pct=p.get("diff_pct"),
+                is_percent=is_percent,
+            )
+            if line:
+                lines.append(f"• {line}")
+
+    return format_numbers("\n".join(lines))
+
+
 def _format_aggregate_plain(data: Any) -> str | None:
     """
     Собирает ответ для intent='aggregate' без LLM.
@@ -729,6 +842,12 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
 
     if state.get("intent") == "aggregate":
         formatted = _format_aggregate_plain(state.get("data"))
+        if formatted is not None:
+            return {"answer": formatted}
+        return {"answer": "В данных нет информации."}
+
+    if state.get("intent") == "compare":
+        formatted = _format_compare_plain(state.get("data"))
         if formatted is not None:
             return {"answer": formatted}
         return {"answer": "В данных нет информации."}
