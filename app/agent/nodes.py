@@ -177,6 +177,7 @@ FORMAT_SYSTEM_PROMPT = """Ты — финансовый ассистент.
   маркированный список.
 - Период указывай человеческим языком: «за август 2026», «за май 2026»,
   «за 2026 год». Не выводи ISO-даты (2026-08-01) и не пиши диапазоны.
+  - Если период не указан — пиши «за всё время», не «за весь период».
 - Если profit_rub отрицательный — покажи как минус: «−1 234 ₽».
 - Если profitability_percent равен null или отсутствует — не упоминай
   рентабельность вовсе. Не пиши «0%» или «нет данных» вместо неё.
@@ -404,6 +405,18 @@ def _pluralize_transactions(n: int) -> str:
     return "транзакций"
 
 
+def _pluralize_projects(n: int) -> str:
+    """N проектов в правильной форме."""
+    if 10 <= n % 100 <= 20:
+        return "проектов"
+    last = n % 10
+    if last == 1:
+        return "проект"
+    if 2 <= last <= 4:
+        return "проекта"
+    return "проектов"
+
+
 def _humanize_error(msg: str) -> str:
     """
     Человеческое сообщение вместо технического об ошибке LLM.
@@ -412,14 +425,30 @@ def _humanize_error(msg: str) -> str:
     вызывающий код решает сам, как её показать.
     """
     lowered = msg.lower()
+
+    # 404 / нет модели.
+    if "no such model" in lowered or "404" in msg:
+        return "Модель недоступна. Обратитесь к администратору."
+
+    # 403 / гео-ограничение.
     if "403" in msg or "region" in lowered or "geo" in lowered:
         return "Модель временно недоступна. Попробуйте позже."
+
+    # 402 / кредиты.
     if "402" in msg or "credits" in lowered or "in_flight" in lowered:
         return "Сервис LLM временно недоступен. Попробуйте позже."
+
+    # 429 / rate limit.
     if "429" in msg or "rate limit" in lowered:
         return "Слишком много запросов. Попробуйте через минуту."
-    if "timeout" in lowered or "timed out" in lowered:
+
+    # Таймаут
+    if any(
+        marker in lowered
+        for marker in ("readtimeout", "connecttimeout", "timed out", "timeout error")
+    ):
         return "Превышено время ожидания LLM. Попробуйте позже."
+
     return ""
 
 
@@ -485,7 +514,7 @@ def _format_top_projects_plain(data: Any) -> str | None:
     metric_about = _METRIC_LABELS_ABOUT.get(metric, metric)
     period = _human_period(data.get("date_from") or "", data.get("date_to") or "")
 
-    header = f"Топ-{len(items)} проектов по {metric_about}"
+    header = f"Топ-{len(items)} {_pluralize_projects(len(items))} по {metric_about}"
     if period:
         header += f" за {period}"
     header += ":"
@@ -606,8 +635,8 @@ def _period_label(date_from: str, date_to: str) -> str:
 
 
 def _fmt_number(value: float) -> str:
-    """-228734.09 → '-228734,09'. Точка → запятая, без пробелов."""
-    return str(value).replace(".", ",")
+    """Всегда две цифры после запятой."""
+    return f"{value:,.2f}".replace(",", " ").replace(".", ",")
 
 
 def _compare_line(

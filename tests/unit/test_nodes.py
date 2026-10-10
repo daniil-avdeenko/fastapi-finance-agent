@@ -156,18 +156,6 @@ async def test_format_answer_uses_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Как дела?" in user_msg
 
 
-async def test_format_answer_short_circuits_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom() -> Any:
-        raise AssertionError("LLM не должен вызываться при error")
-
-    monkeypatch.setattr(nodes, "get_llm", boom)
-
-    result = await nodes.format_answer_node({"question": "q", "error": "timeout"})
-
-    assert "превышено" in result["answer"].lower()
-    assert "timeout" not in result["answer"]
-
-
 async def test_understand_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """Падение LLM не роняет узел — пишем в state.error."""
 
@@ -181,18 +169,6 @@ async def test_understand_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert result["intent"] == "unknown"
     assert "LLM down" in result["error"]
-
-
-async def test_format_answer_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    class BrokenLLM:
-        async def chat(self, system: str, user: str) -> str:
-            raise RuntimeError("timeout")
-
-    monkeypatch.setattr(nodes, "get_llm", lambda: BrokenLLM())
-
-    result = await nodes.format_answer_node({"question": "q", "data": {}})
-
-    assert "превышено" in result["answer"].lower()
 
 
 async def test_query_data_skips_when_error_present(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -520,7 +496,7 @@ def test_format_top_projects_plain_profit() -> None:
     result = nodes._format_top_projects_plain(data)
 
     assert result is not None
-    assert "Топ-2 проектов по прибыли за август 2026:" in result
+    assert "Топ-2 проекта по прибыли за август 2026:" in result
     assert "• A — прибыль 100,50 ₽" in result  # было 100,5
     assert "• B — прибыль 50 ₽" in result
 
@@ -538,7 +514,7 @@ def test_format_top_projects_plain_profitability() -> None:
     result = nodes._format_top_projects_plain(data)
 
     assert result is not None
-    assert "Топ-2 проектов по рентабельности за май 2026:" in result
+    assert "Топ-2 проекта по рентабельности за май 2026:" in result
     assert "• A — рентабельность 25,50%" in result
     assert "• B — рентабельность 12,75%" in result
 
@@ -553,7 +529,7 @@ def test_format_top_projects_plain_income_no_period() -> None:
     result = nodes._format_top_projects_plain(data)
 
     assert result is not None
-    assert "Топ-1 проектов по доходу:" in result
+    assert "Топ-1 проект по доходу:" in result
     assert "• A — доход 1 000 ₽" in result
 
 
@@ -588,7 +564,7 @@ async def test_format_answer_top_n_uses_python_formatter(
         }
     )
 
-    assert "Топ-2 проектов по прибыли" in result["answer"]
+    assert "Топ-2 проекта по прибыли" in result["answer"]
     assert "Alpha — прибыль 1 000 000 ₽" in result["answer"]
 
 
@@ -1058,3 +1034,32 @@ async def test_format_answer_compare_uses_python_formatter(
 
     assert "Сравнение прибыли" in result["answer"]
     assert "1 000 ₽ → 1 200 ₽ (+200 ₽, +20%)" in result["answer"]
+
+
+async def test_format_answer_short_circuits_on_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться при error")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {"question": "q", "error": "ReadTimeout: connection closed"}
+    )
+
+    assert "превышено" in result["answer"].lower()
+
+
+async def test_format_answer_handles_llm_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenLLM:
+        async def chat(self, system: str, user: str) -> str:
+            raise RuntimeError("Request timed out")
+
+    monkeypatch.setattr(nodes, "get_llm", lambda: BrokenLLM())
+
+    result = await nodes.format_answer_node({"question": "q", "data": {}})
+
+    assert "превышено" in result["answer"].lower()
