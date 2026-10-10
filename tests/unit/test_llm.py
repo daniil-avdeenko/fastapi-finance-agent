@@ -2,10 +2,12 @@
 
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.agent.llm.factory import get_llm
+from app.agent.llm.gigachat import GigaChatLLM
 from app.agent.llm.mock import MockLLM
 from app.agent.llm.openrouter import OpenRouterLLM
 from app.config import get_settings
@@ -146,3 +148,72 @@ def test_factory_returns_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
     llm = get_llm()
     assert isinstance(llm, OpenRouterLLM)
     assert llm.name == "openrouter"
+
+
+class _FakeGigaChatResponse:
+    """Мок ответа langchain-gigachat."""
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+def test_gigachat_name() -> None:
+    llm = GigaChatLLM(credentials="key", model="GigaChat")
+    assert llm.name == "gigachat"
+
+
+async def test_gigachat_sends_messages() -> None:
+    fake_client = MagicMock()
+    fake_client.ainvoke = AsyncMock(return_value=_FakeGigaChatResponse("Ответ"))
+
+    llm = GigaChatLLM(credentials="key", model="GigaChat", client=fake_client)
+    result = await llm.chat("system prompt", "user question")
+
+    assert result == "Ответ"
+    fake_client.ainvoke.assert_awaited_once()
+    call_args = fake_client.ainvoke.call_args[0][0]
+    assert ("system", "system prompt") in call_args
+    assert ("human", "user question") in call_args
+
+
+def test_gigachat_verify_ssl_explicit() -> None:
+    """verify_ssl прокидывается явно, не зависит от env."""
+    llm_true = GigaChatLLM(credentials="key", model="GigaChat-3-Pro", verify_ssl=True)
+    assert llm_true._verify_ssl is True
+
+    llm_false = GigaChatLLM(credentials="key", model="GigaChat-3-Pro", verify_ssl=False)
+    assert llm_false._verify_ssl is False
+
+
+def test_gigachat_build_client_passes_config(monkeypatch) -> None:
+    """Проверяем, что credentials, model, scope прокидываются."""
+    captured: dict = {}
+
+    class FakeGigaChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("app.agent.llm.gigachat.GigaChat", FakeGigaChat)
+
+    llm = GigaChatLLM(
+        credentials="test-key",
+        model="GigaChat-Pro",
+        scope="GIGACHAT_API_B2B",
+        verify_ssl=False,
+    )
+    llm._build_client()
+
+    assert captured["credentials"] == "test-key"
+    assert captured["model"] == "GigaChat-Pro"
+    assert captured["scope"] == "GIGACHAT_API_B2B"
+    assert captured["verify_ssl_certs"] is False
+
+
+def test_factory_returns_gigachat(monkeypatch) -> None:
+    """При LLM_PROVIDER=gigachat фабрика возвращает GigaChatLLM."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "llm_provider", "gigachat")
+
+    llm = get_llm()
+    assert isinstance(llm, GigaChatLLM)
+    assert llm.name == "gigachat"
