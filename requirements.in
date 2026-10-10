@@ -19,6 +19,7 @@ langgraph
 langchain-core
 langchain-openai
 openai
+langchain-gigachat
 
 # Telegram
 aiogram
