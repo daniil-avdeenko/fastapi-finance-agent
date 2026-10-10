@@ -36,9 +36,15 @@ class Settings(BaseSettings):
     main_api_timeout: float = 10.0
 
     # LLM
-    llm_provider: Literal["openrouter", "yandex", "mock"] = "openrouter"
+    llm_provider: Literal["openrouter", "gigachat", "yandex", "mock"] = "gigachat"
     llm_api_key: str = ""
     llm_model: str = "google/gemini-3.1-flash-lite"
+
+    # GigaChat
+    gigachat_credentials: str = ""
+    gigachat_scope: str = "GIGACHAT_API_PERS"
+    gigachat_model: str = "GigaChat-3-Pro"
+    gigachat_verify_ssl: bool = True
 
     # Telegram
     telegram_bot_token: str = ""
