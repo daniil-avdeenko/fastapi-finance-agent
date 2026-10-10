@@ -6,15 +6,14 @@
 """
 
 from app.agent.llm.base import LLMProvider
+from app.agent.llm.gigachat import GigaChatLLM
 from app.agent.llm.mock import MockLLM
 from app.agent.llm.openrouter import OpenRouterLLM
 from app.config import get_settings
 
 
 def get_llm() -> LLMProvider:
-    """
-    Возвращает LLM-провайдер по настройкам.
-    """
+    """Возвращает LLM-провайдер по настройкам."""
     settings = get_settings()
 
     if settings.llm_provider == "mock":
@@ -22,5 +21,8 @@ def get_llm() -> LLMProvider:
 
     if settings.llm_provider == "openrouter":
         return OpenRouterLLM()
+
+    if settings.llm_provider == "gigachat":
+        return GigaChatLLM()
 
     raise ValueError(f"Неизвестный провайдер: {settings.llm_provider}")
