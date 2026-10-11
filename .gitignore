@@ -15,6 +15,7 @@ venv/
 # Секреты
 .env
 .env.*
+.env.prod
 !.env.example
 
 # БД
