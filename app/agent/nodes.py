@@ -57,7 +57,7 @@ async def understand_node(state: AgentState) -> dict[str, Any]:
         raw = await llm.chat(system, state["question"])
     except Exception as exc:
         logger.exception("understand_node failed")
-        humanized = _humanize_error(str(exc))
+        humanized = _humanize_error(f"{type(exc).__name__}: {exc}")
         return {
             "intent": "unknown",
             "params": {},
@@ -185,7 +185,7 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
         answer = await llm.chat(FORMAT_SYSTEM_PROMPT, user)
     except Exception as exc:
         logger.exception("format_answer_node failed")
-        humanized = _humanize_error(str(exc))
+        humanized = _humanize_error(f"{type(exc).__name__}: {exc}")
         if humanized:
             return {"answer": humanized}
         return {"answer": "Ошибка генерации ответа. Попробуйте позже."}

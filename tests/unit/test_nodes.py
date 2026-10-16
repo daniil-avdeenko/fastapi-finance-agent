@@ -509,3 +509,19 @@ async def test_format_answer_hides_technical_details() -> None:
     assert "LLM error" not in result["answer"]
     assert "internal failure" not in result["answer"]
     assert "nodes.py" not in result["answer"]
+
+
+async def test_format_answer_humanizes_empty_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """httpx.ConnectTimeout с пустым сообщением распознаётся как таймаут."""
+    import httpx
+
+    class BrokenLLM:
+        async def chat(self, system: str, user: str) -> str:
+            # httpx сам формирует исключение с пустым str() — воспроизводим.
+            raise httpx.ConnectTimeout("")
+
+    monkeypatch.setattr(nodes, "get_llm", lambda: BrokenLLM())
+
+    result = await nodes.format_answer_node({"question": "q", "intent": "summary", "data": {}})
+
+    assert "превышено" in result["answer"].lower()
