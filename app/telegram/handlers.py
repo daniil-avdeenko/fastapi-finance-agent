@@ -7,6 +7,7 @@ process_question, что и в HTTP-роуте.
 """
 
 import logging
+from html import escape
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -61,7 +62,7 @@ async def _ask_agent(
             await answer_to.answer("Произошла ошибка. Попробуйте позже.")
             return
 
-    await answer_to.answer(result.answer)
+    await answer_to.answer(escape(result.answer))
 
 
 @router.message(Command("start"))
