@@ -39,7 +39,7 @@ async def test_graph_end_to_end(mock_agent: MockLLM) -> None:
 
 
 async def test_graph_handles_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ошибка tool не роняет граф — format_answer отдаёт честный текст."""
+    """Ошибка tool не роняет граф — format_answer отдаёт нейтральный текст."""
     from app.agent.tools import MainAPIError
 
     llm = MockLLM(responses=['{"intent": "summary", "params": {}}', "unused"])
@@ -54,7 +54,8 @@ async def test_graph_handles_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
     result = await graph.ainvoke({"question": "q", "chat_id": 1})
 
     assert result["error"] == "boom"
-    assert "boom" in result["answer"]
+    assert "Не удалось обработать запрос" in result["answer"]
+    assert "boom" not in result["answer"]
 
 
 def test_get_graph_is_cached() -> None:

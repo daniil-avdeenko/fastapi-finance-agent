@@ -196,3 +196,24 @@ async def test_quick_action_bad_prefix() -> None:
     await handlers.handle_quick_action(callback)
 
     callback.answer.assert_awaited_once()
+
+
+async def test_handle_question_escapes_html(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HTML в ответе агента экранируется — иначе Telegram отвергает сообщение."""
+
+    async def fake_process(
+        session: Any, *, chat_id: int, question: str, use_history: bool = True
+    ) -> AgentResult:
+        return AgentResult(
+            answer="Проект <Ромашка> & Ко",
+            llm_provider="mock",
+            latency_ms=10,
+        )
+
+    monkeypatch.setattr(handlers, "process_question", fake_process)
+    monkeypatch.setattr(handlers, "SessionLocal", _FakeSession)
+
+    message = make_message("Вопрос")
+    await handlers.handle_question(message)
+
+    message.answer.assert_awaited_once_with("Проект &lt;Ромашка&gt; &amp; Ко")
