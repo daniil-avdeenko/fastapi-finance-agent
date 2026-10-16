@@ -1,0 +1,97 @@
+name: Deploy Preview
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: preview-agent-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Preview build & smoke
+    # GitHub-hosted: PR может прийти из форка, на self-hosted пускать чужой код нельзя.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # На уровне job: compose интерполирует ${POSTGRES_*} из shell env,
+    # и шаг Prepare .env for CI использует эти же значения.
+    env:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: ci-test-password
+      POSTGRES_DB: finance_agent
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Compose prod требует env_file: .env (в gitignore). Плюс приложение
+      # читает из него DATABASE_URL, SECRET_KEY, LLM_PROVIDER и т.п.
+      # Создаём фиктивный .env, достаточный для старта и smoke-теста /health.
+      - name: Prepare .env for CI
+        run: |
+          cat > .env <<EOF
+          APP_ENV=production
+          SECRET_KEY=ci-test-secret-key-not-for-production
+          DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+          LOG_LEVEL=INFO
+
+          POSTGRES_USER=${POSTGRES_USER}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=${POSTGRES_DB}
+
+          MAIN_API_URL=https://projectfin.com.ru
+          MAIN_API_TIMEOUT=10
+
+          LLM_PROVIDER=mock
+          TELEGRAM_MODE=webhook
+          TELEGRAM_BOT_TOKEN=
+          TELEGRAM_WEBHOOK_SECRET=
+          TELEGRAM_RATE_LIMIT=10
+          TELEGRAM_RATE_WINDOW=60
+          EOF
+
+      - name: Build image
+        run: docker compose -f docker-compose.prod.yml build web
+
+      - name: Start postgres and wait healthy
+        run: |
+          set -e
+          docker compose -f docker-compose.prod.yml up -d postgres
+
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format='{{.State.Health.Status}}' \
+              fastapi-finance-agent-postgres-1 2>/dev/null || echo "missing")
+            [ "$status" = "healthy" ] && break
+            sleep 2
+          done
+          [ "$status" = "healthy" ] || {
+            docker compose -f docker-compose.prod.yml logs postgres
+            exit 1
+          }
+
+      - name: Start web and wait healthy
+        run: |
+          set -e
+          docker compose -f docker-compose.prod.yml up -d web
+
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format='{{.State.Health.Status}}' \
+              fastapi-finance-agent-web-1 2>/dev/null || echo "missing")
+            [ "$status" = "healthy" ] && break
+            sleep 2
+          done
+          [ "$status" = "healthy" ] || {
+            docker compose -f docker-compose.prod.yml logs web
+            exit 1
+          }
+
+      - name: Smoke test
+        run: |
+          docker compose -f docker-compose.prod.yml exec -T web \
+            python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/health').status)"
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v --remove-orphans
