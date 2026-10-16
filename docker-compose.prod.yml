@@ -33,6 +33,13 @@ services:
     extra_hosts:
       - "projectfin.com.ru:host-gateway"
       - "www.projectfin.com.ru:host-gateway"
+    # python -c вместо curl — в базовом образе python:3.12-slim curl отсутствует,
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks: [ backend ]
 
 networks:
