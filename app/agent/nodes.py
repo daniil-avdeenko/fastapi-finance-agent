@@ -57,7 +57,12 @@ async def understand_node(state: AgentState) -> dict[str, Any]:
         raw = await llm.chat(system, state["question"])
     except Exception as exc:
         logger.exception("understand_node failed")
-        return {"intent": "unknown", "params": {}, "error": f"LLM error: {exc}"}
+        humanized = _humanize_error(str(exc))
+        return {
+            "intent": "unknown",
+            "params": {},
+            "error": humanized or "Сервис LLM временно недоступен.",
+        }
 
     parsed = _extract_json(raw)
     intent = parsed.get("intent", "unknown")
@@ -102,7 +107,7 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
         humanized = _humanize_error(msg)
         if humanized:
             return {"answer": humanized}
-        return {"answer": f"Не удалось получить данные: {msg}. Попробуйте позже."}
+        return {"answer": "Не удалось обработать запрос. Попробуйте позже."}
 
     intent = state.get("intent")
 

@@ -112,7 +112,7 @@ async def test_understand_prompt_contains_today(monkeypatch: pytest.MonkeyPatch)
 
 
 async def test_understand_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Падение LLM не роняет узел — пишем в state.error."""
+    """Падение LLM не роняет узел — пишем человеческое сообщение в state.error."""
 
     class BrokenLLM:
         async def chat(self, system: str, user: str) -> str:
@@ -123,7 +123,7 @@ async def test_understand_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> 
     result = await nodes.understand_node({"question": "q", "chat_id": 1})
 
     assert result["intent"] == "unknown"
-    assert "LLM down" in result["error"]
+    assert result["error"] == "Сервис LLM временно недоступен."
 
 
 # ---------- query_data_node ----------
@@ -495,3 +495,17 @@ async def test_format_answer_count_intent(monkeypatch: pytest.MonkeyPatch) -> No
     assert "Транзакций: 10" in result["answer"]
     assert "проекту 1" in result["answer"]
     assert "расходных" in result["answer"]
+
+
+async def test_format_answer_hides_technical_details() -> None:
+    """Технические детали из error не попадают в ответ пользователю."""
+    result = await nodes.format_answer_node(
+        {
+            "question": "q",
+            "error": "LLM error: internal failure at /app/nodes.py:42",
+        }
+    )
+
+    assert "LLM error" not in result["answer"]
+    assert "internal failure" not in result["answer"]
+    assert "nodes.py" not in result["answer"]
