@@ -1,0 +1,49 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: deploy-fastapi-agent
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to NL
+    # Self-hosted на NL. Запускается после CI на main — код уже смерджен,
+    # не из форка. Безопасно.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: [self-hosted, nl-server]
+    timeout-minutes: 15
+
+    steps:
+      - name: Pull, rebuild and migrate
+        run: |
+          set -e
+          cd /opt/fastapi-finance-agent
+          git fetch origin
+          git reset --hard origin/main
+          docker compose -f docker-compose.prod.yml build web
+          docker compose -f docker-compose.prod.yml up -d
+          docker compose -f docker-compose.prod.yml ps
+
+      - name: Verify health
+        run: |
+          set -e
+          cd /opt/fastapi-finance-agent
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format='{{.State.Health.Status}}' \
+              fastapi-finance-agent-web-1 2>/dev/null || echo "missing")
+            [ "$status" = "healthy" ] && break
+            sleep 2
+          done
+          [ "$status" = "healthy" ] || {
+            docker compose -f docker-compose.prod.yml logs --tail=50 web
+            exit 1
+          }
+
+      - name: Prune old images
+        run: docker image prune -f
