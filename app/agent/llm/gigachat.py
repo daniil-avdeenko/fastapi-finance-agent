@@ -51,9 +51,19 @@ class GigaChatLLM:
             timeout=self._timeout,
         )
 
+    def _get_client(self) -> Any:
+        """
+        Ленивая инициализация клиента.
+
+        Клиент держит OAuth-токен и httpx-пул.
+        """
+        if self._client is None:
+            self._client = self._build_client()
+        return self._client
+
     async def chat(self, system: str, user: str) -> str:
         """Отправляет system + user, возвращает текст ответа."""
-        client = self._client or self._build_client()
+        client = self._get_client()
 
         messages = [
             ("system", system),
