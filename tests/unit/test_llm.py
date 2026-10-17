@@ -13,6 +13,18 @@ from app.agent.llm.openrouter import OpenRouterLLM
 from app.config import get_settings
 
 
+@pytest.fixture(autouse=True)
+def _clear_llm_cache() -> None:
+    """
+    Сбрасывает кэш провайдера между тестами.
+    """
+    from app.agent.llm.factory import get_llm
+
+    get_llm.cache_clear()
+    yield
+    get_llm.cache_clear()
+
+
 async def test_mock_llm_returns_responses_in_order() -> None:
     """MockLLM возвращает заготовленные ответы по порядку."""
     llm = MockLLM(responses=["first", "second"])
@@ -217,3 +229,38 @@ def test_factory_returns_gigachat(monkeypatch) -> None:
     llm = get_llm()
     assert isinstance(llm, GigaChatLLM)
     assert llm.name == "gigachat"
+
+
+def test_factory_caches_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Повторный вызов возвращает тот же экземпляр — провайдер держит клиент и токен."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "llm_provider", "gigachat")
+    monkeypatch.setattr(settings, "gigachat_credentials", "test-creds")
+
+    first = get_llm()
+    second = get_llm()
+
+    assert first is second
+    assert isinstance(first, GigaChatLLM)
+
+
+async def test_gigachat_reuses_client_between_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Клиент создаётся один раз, дальше переиспользуется — экономит OAuth."""
+    build_calls = {"count": 0}
+
+    class TrackingGigaChat:
+        def __init__(self, **kwargs: Any) -> None:
+            build_calls["count"] += 1
+
+        async def ainvoke(self, messages: Any) -> Any:
+            return SimpleNamespace(content="ok")
+
+    monkeypatch.setattr("app.agent.llm.gigachat.GigaChat", TrackingGigaChat)
+
+    llm = GigaChatLLM(credentials="key", model="GigaChat-3-Pro")
+    await llm.chat("s", "u1")
+    await llm.chat("s", "u2")
+
+    assert build_calls["count"] == 1

@@ -2,8 +2,10 @@
 Фабрика LLM-провайдеров.
 
 Читает settings.llm_provider и возвращает нужную реализацию.
-В тестах и dev по умолчанию — MockLLM.
+Кэшируется на процесс: провайдер держит httpx-клиент и OAuth-токен.
 """
+
+from functools import lru_cache
 
 from app.agent.llm.base import LLMProvider
 from app.agent.llm.gigachat import GigaChatLLM
@@ -12,6 +14,7 @@ from app.agent.llm.openrouter import OpenRouterLLM
 from app.config import get_settings
 
 
+@lru_cache(maxsize=1)
 def get_llm() -> LLMProvider:
     """Возвращает LLM-провайдер по настройкам."""
     settings = get_settings()
