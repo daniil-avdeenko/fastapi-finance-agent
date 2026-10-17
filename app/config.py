@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # LLM
     llm_provider: Literal["openrouter", "gigachat", "yandex", "mock"] = "gigachat"
     llm_api_key: str = ""
-    llm_model: str = "google/gemini-3.1-flash-lite"
+    llm_model: str = ""
 
     # GigaChat
     gigachat_credentials: str = ""
@@ -57,10 +57,20 @@ class Settings(BaseSettings):
     telegram_rate_window: int = Field(default=60, ge=1, le=3600)
 
     @model_validator(mode="after")
-    def _require_openrouter_key(self) -> "Settings":
-        """Проверяет, что для openrouter задан ключ — падаем на старте, а не в рантайме."""
-        if self.llm_provider == "openrouter" and not self.llm_api_key:
-            raise ValueError("LLM_API_KEY обязателен при LLM_PROVIDER=openrouter")
+    def _validate_llm_config(self) -> "Settings":
+        """
+        Проверяет, что для выбранного провайдера заданы обязательные поля.
+        """
+        if self.llm_provider == "openrouter":
+            if not self.llm_api_key:
+                raise ValueError("LLM_API_KEY обязателен при LLM_PROVIDER=openrouter")
+            if not self.llm_model:
+                raise ValueError("LLM_MODEL обязателен при LLM_PROVIDER=openrouter")
+
+        elif self.llm_provider == "gigachat":
+            if not self.gigachat_credentials:
+                raise ValueError("GIGACHAT_CREDENTIALS обязателен при LLM_PROVIDER=gigachat")
+
         return self
 
     @property

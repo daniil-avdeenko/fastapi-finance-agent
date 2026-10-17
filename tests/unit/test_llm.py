@@ -264,3 +264,66 @@ async def test_gigachat_reuses_client_between_calls(
     await llm.chat("s", "u2")
 
     assert build_calls["count"] == 1
+
+
+# ---------- Валидация конфига ----------
+
+
+def _make_settings(**overrides: Any) -> Any:
+    """
+    Settings с минимальным набором обязательных полей.
+    """
+    from app.config import Settings
+
+    base = {
+        "secret_key": "test-secret-key-at-least-8",
+        "database_url": "postgresql+asyncpg://x:y@z/w",
+        "main_api_url": "http://x",
+        "app_env": "development",
+    }
+    base.update(overrides)
+    return Settings(**base)
+
+
+def test_settings_rejects_gigachat_without_credentials() -> None:
+    """Пустые GIGACHAT_CREDENTIALS при LLM_PROVIDER=gigachat — ошибка на старте."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="GIGACHAT_CREDENTIALS"):
+        _make_settings(llm_provider="gigachat", gigachat_credentials="")
+
+
+def test_settings_accepts_gigachat_with_credentials() -> None:
+    """С credentials — старт проходит."""
+    settings = _make_settings(llm_provider="gigachat", gigachat_credentials="test-creds")
+    assert settings.llm_provider == "gigachat"
+
+
+def test_settings_rejects_openrouter_without_key() -> None:
+    """Пустой LLM_API_KEY при LLM_PROVIDER=openrouter — ошибка на старте."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="LLM_API_KEY"):
+        _make_settings(
+            llm_provider="openrouter",
+            llm_api_key="",
+            llm_model="google/gemini-2.0",
+        )
+
+
+def test_settings_rejects_openrouter_without_model() -> None:
+    """Пустой LLM_MODEL при LLM_PROVIDER=openrouter — ошибка на старте."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="LLM_MODEL"):
+        _make_settings(
+            llm_provider="openrouter",
+            llm_api_key="test-key",
+            llm_model="",
+        )
+
+
+def test_settings_accepts_mock_without_credentials() -> None:
+    """mock-провайдеру ничего не нужно — старт проходит с пустыми полями."""
+    settings = _make_settings(llm_provider="mock", llm_api_key="", gigachat_credentials="")
+    assert settings.llm_provider == "mock"
