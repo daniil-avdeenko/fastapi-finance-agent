@@ -55,6 +55,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await shutdown_bot.session.close()
         logger.info("Telegram bot session closed")
 
+    from app.cache import close_cache
+
+    await close_cache()
     await engine.dispose()
     logger.info("Shutdown complete")
 
