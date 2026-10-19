@@ -48,6 +48,10 @@ module = "langchain_core.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "redis.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "langchain_openai.*"
 ignore_missing_imports = true
 

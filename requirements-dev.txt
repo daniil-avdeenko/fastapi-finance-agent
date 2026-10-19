@@ -10,7 +10,7 @@ aiogram==3.31.0
     # via -r /work/requirements.in
 aiohappyeyeballs==2.7.1
     # via aiohttp
-aiohttp==3.14.4
+aiohttp==3.14.5
     # via aiogram
 aiosignal==1.4.0
     # via aiohttp
@@ -28,13 +28,13 @@ anyio==4.15.1
     #   openai
     #   starlette
     #   watchfiles
-ast-serialize==0.12.1
+ast-serialize==0.13.1
     # via mypy
 asyncpg==0.32.0
     # via -r /work/requirements.in
 attrs==26.1.0
     # via aiohttp
-certifi==2026.7.22
+certifi==2026.10.18
     # via
     #   aiogram
     #   httpcore
@@ -49,15 +49,17 @@ click==8.5.0
     # via uvicorn
 coverage==7.16.2
     # via pytest-cov
-distlib==0.4.3
+distlib==0.4.4
     # via virtualenv
 distro==1.9.0
     # via langsmith
 docker==7.2.0
     # via testcontainers
-fastapi==0.143.0
+fakeredis==2.40.0
+    # via -r requirements-dev.in
+fastapi==0.147.0
     # via -r /work/requirements.in
-filelock==4.1.0
+filelock==4.2.4
     # via
     #   python-discovery
     #   virtualenv
@@ -76,7 +78,7 @@ h11==0.16.0
     #   uvicorn
 httpcore==1.0.9
     # via httpx
-httpcore2==2.13.1
+httpcore2==2.14.0
     # via httpx2
 httptools==0.9.0
     # via uvicorn
@@ -87,7 +89,7 @@ httpx==0.28.1
     #   langchain-core
     #   langgraph-sdk
     #   respx
-httpx2==2.13.1
+httpx2==2.14.0
     # via
     #   langsmith
     #   openai
@@ -104,11 +106,11 @@ iniconfig==2.3.1
     # via pytest
 jiter==0.17.0
     # via openai
-jsonpatch==1.34
+jsonpatch==1.35
     # via langchain-core
-jsonpointer==3.2.0
+jsonpointer==3.3
     # via jsonpatch
-langchain-core==1.6.9
+langchain-core==1.6.12
     # via
     #   -r /work/requirements.in
     #   langchain-gigachat
@@ -119,33 +121,35 @@ langchain-core==1.6.9
     #   langgraph-sdk
 langchain-gigachat==0.5.1
     # via -r /work/requirements.in
-langchain-openai==1.7.0
+langchain-openai==1.7.2
     # via -r /work/requirements.in
 langchain-protocol==0.0.19
     # via
     #   langchain-core
     #   langgraph-sdk
-langgraph==1.2.14
+langgraph==1.2.16
     # via -r /work/requirements.in
-langgraph-checkpoint==4.2.0
+langgraph-checkpoint==4.3.0
     # via
     #   langgraph
     #   langgraph-prebuilt
-langgraph-prebuilt==1.1.0
+langgraph-prebuilt==1.1.1
     # via langgraph
-langgraph-sdk==0.4.6
+langgraph-sdk==0.4.8
     # via langgraph
-langsmith==0.14.7
+langsmith==0.14.11
     # via langchain-core
 librt==0.16.0
     # via mypy
+lupa==2.8
+    # via fakeredis
 magic-filter==1.0.12
     # via aiogram
 mako==1.4.3
     # via alembic
 markupsafe==3.0.4
     # via mako
-multidict==6.9.1
+multidict==7.1.0
     # via
     #   aiohttp
     #   yarl
@@ -155,7 +159,7 @@ mypy-extensions==1.1.0
     # via mypy
 nodeenv==1.11.0
     # via pre-commit
-openai==3.28.0
+openai==3.35.1
     # via
     #   -r /work/requirements.in
     #   langchain-openai
@@ -165,7 +169,7 @@ orjson==3.13.0
     # via
     #   langgraph-sdk
     #   langsmith
-ormsgpack==1.12.2
+ormsgpack==1.13.0
     # via langgraph-checkpoint
 packaging==26.3
     # via
@@ -175,16 +179,14 @@ packaging==26.3
     #   virtualenv
 pathspec==1.1.1
     # via mypy
-platformdirs==4.12.4
+platformdirs==4.13.5
     # via virtualenv
-pluggy==1.6.0
+pluggy==1.7.0
     # via
     #   pytest
     #   pytest-cov
-pre-commit==4.6.2
+pre-commit==4.7.0
     # via -r requirements-dev.in
-prometheus-client==0.26.0
-    # via -r /work/requirements.in
 propcache==0.5.4
     # via
     #   aiohttp
@@ -201,7 +203,7 @@ pydantic==2.13.5
     #   pydantic-settings
 pydantic-core==2.46.5
     # via pydantic
-pydantic-settings==2.15.0
+pydantic-settings==2.16.0
     # via
     #   -r /work/requirements.in
     #   gigachat
@@ -216,7 +218,7 @@ pytest-asyncio==1.4.0
     # via -r requirements-dev.in
 pytest-cov==7.1.0
     # via -r requirements-dev.in
-python-discovery==1.6.2
+python-discovery==1.6.4
     # via virtualenv
 python-dotenv==1.2.4
     # via
@@ -229,6 +231,10 @@ pyyaml==6.0.3
     #   langchain-core
     #   pre-commit
     #   uvicorn
+redis==8.1.0
+    # via
+    #   -r /work/requirements.in
+    #   fakeredis
 regex==2026.9.29
     # via tiktoken
 requests==2.34.2
@@ -241,17 +247,19 @@ requests-toolbelt==1.0.0
     # via langsmith
 respx==0.23.1
     # via -r requirements-dev.in
-ruff==0.17.0
+ruff==0.17.1
     # via -r requirements-dev.in
 sniffio==1.3.1
     # via
     #   langsmith
     #   openai
-sqlalchemy==2.1.4
+sortedcontainers==2.4.0
+    # via fakeredis
+sqlalchemy==2.1.5
     # via
     #   -r /work/requirements.in
     #   alembic
-starlette==1.7.0
+starlette==1.9.0
     # via fastapi
 tenacity==9.2.1
     # via langchain-core
@@ -259,7 +267,7 @@ testcontainers==4.15.0
     # via -r requirements-dev.in
 tiktoken==0.14.0
     # via langchain-openai
-truststore==0.10.4
+truststore==0.10.5
     # via
     #   httpcore2
     #   httpx2
@@ -280,6 +288,7 @@ typing-extensions==4.16.0
     #   opentelemetry-api
     #   pydantic
     #   pydantic-core
+    #   pydantic-settings
     #   pytest-asyncio
     #   sqlalchemy
     #   starlette
@@ -305,7 +314,7 @@ uvloop==0.23.0 ; sys_platform != "win32"
     # via
     #   -r /work/requirements.in
     #   uvicorn
-virtualenv==21.14.6
+virtualenv==21.14.11
     # via pre-commit
 watchfiles==1.3.0
     # via uvicorn
@@ -314,9 +323,9 @@ websockets==16.1.1
     #   langgraph-sdk
     #   langsmith
     #   uvicorn
-wrapt==2.5.0
+wrapt==2.5.1
     # via testcontainers
-xxhash==4.0.1
+xxhash==4.0.2
     # via
     #   langgraph
     #   langsmith
