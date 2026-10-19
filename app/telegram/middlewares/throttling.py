@@ -106,8 +106,7 @@ class ThrottlingMiddleware(BaseMiddleware):
 
     async def _respond_blocked(self, event: Message) -> None:
         await event.answer(
-            f"Слишком много запросов. Подождите "
-            f"{self.window_seconds} секунд и попробуйте снова."
+            f"Слишком много запросов. Подождите {self.window_seconds} секунд и попробуйте снова."
         )
 
     async def __call__(
