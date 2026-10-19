@@ -19,6 +19,17 @@ services:
       retries: 5
     networks: [ backend ]
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 32m
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks: [ backend ]
+
   web:
     build: .
     image: finance-agent:latest
@@ -35,7 +46,7 @@ services:
       - "www.projectfin.com.ru:host-gateway"
     # python -c вместо curl — в базовом образе python:3.12-slim curl отсутствует,
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 30s
       timeout: 10s
       retries: 3

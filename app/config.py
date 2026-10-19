@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     main_api_url: str = Field(..., description="URL публичного API основного проекта")
     main_api_timeout: float = 10.0
 
+    # Redis (rate limit, кэш)
+    redis_url: str = ""
+
     # LLM
     llm_provider: Literal["openrouter", "gigachat", "yandex", "mock"] = "gigachat"
     llm_api_key: str = ""

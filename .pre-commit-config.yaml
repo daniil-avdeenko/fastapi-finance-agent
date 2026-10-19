@@ -47,7 +47,6 @@ repos:
           - httpx>=0.27
           - openai>=1.50
           - langgraph>=1.0
-          - prometheus-client>=0.20
         args: [ --ignore-missing-imports ]
         files: ^app/
         exclude: ^migrations/

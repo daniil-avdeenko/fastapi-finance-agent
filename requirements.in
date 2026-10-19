@@ -24,8 +24,8 @@ langchain-gigachat
 # Telegram
 aiogram
 
-# Observability
-prometheus-client
-
 # Utils
 python-dotenv
+
+# Cache
+redis
