@@ -1,14 +1,15 @@
 """
 POST /chat — точка входа агента.
 
-Тонкий адаптер: валидирует тело, зовёт agent_service, заворачивает
-RuntimeError в HTTP 500. Вся логика — в сервисе.
+Тонкий адаптер: валидирует тело, проверяет API key (если настроен),
+зовёт agent_service. Вся логика — в сервисе.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db import get_session
 from app.services.agent_service import process_question
 
@@ -35,7 +36,30 @@ class ChatResponse(BaseModel):
     latency_ms: int
 
 
-@router.post("/chat", response_model=ChatResponse)
+async def _verify_api_key(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> None:
+    """
+    Проверяет X-API-Key, если API_KEY задан в настройках.
+
+    Пустой API_KEY — endpoint открыт (dev и публичное демо).
+    Задан API_KEY — требуется совпадающий header, иначе 401.
+    """
+    expected = get_settings().api_key
+    if not expected:
+        return
+    if x_api_key != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+        )
+
+
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    dependencies=[Depends(_verify_api_key)],
+)
 async def chat(
     payload: ChatRequest,
     session: AsyncSession = Depends(get_session),

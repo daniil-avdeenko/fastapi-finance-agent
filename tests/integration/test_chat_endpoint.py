@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import nodes
 from app.agent.llm.mock import MockLLM
+from app.config import get_settings
 from app.db import get_session
 from app.main import app
 from app.models.message import Message
@@ -98,3 +99,74 @@ async def test_chat_rejects_missing_question(
     response = await client.post("/chat", json={"chat_id": 1})
 
     assert response.status_code == 422
+
+
+async def test_chat_open_when_api_key_not_configured(
+    client: AsyncClient,
+    override_session: None,
+    mock_agent: MockLLM,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """API_KEY пуст — endpoint доступен без header."""
+    monkeypatch.setattr(get_settings(), "api_key", "")
+
+    response = await client.post(
+        "/chat",
+        json={"chat_id": 1, "question": "Сводка"},
+    )
+
+    assert response.status_code == 200
+
+
+async def test_chat_requires_api_key_when_configured(
+    client: AsyncClient,
+    override_session: None,
+    mock_agent: MockLLM,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """API_KEY задан, header отсутствует — 401."""
+    monkeypatch.setattr(get_settings(), "api_key", "test-secret-key")
+
+    response = await client.post(
+        "/chat",
+        json={"chat_id": 1, "question": "Сводка"},
+    )
+
+    assert response.status_code == 401
+
+
+async def test_chat_rejects_wrong_api_key(
+    client: AsyncClient,
+    override_session: None,
+    mock_agent: MockLLM,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """API_KEY задан, header неверный — 401."""
+    monkeypatch.setattr(get_settings(), "api_key", "test-secret-key")
+
+    response = await client.post(
+        "/chat",
+        json={"chat_id": 1, "question": "Сводка"},
+        headers={"X-API-Key": "wrong-key"},
+    )
+
+    assert response.status_code == 401
+
+
+async def test_chat_accepts_valid_api_key(
+    client: AsyncClient,
+    override_session: None,
+    mock_agent: MockLLM,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """API_KEY задан, header совпадает — запрос проходит."""
+    monkeypatch.setattr(get_settings(), "api_key", "test-secret-key")
+
+    response = await client.post(
+        "/chat",
+        json={"chat_id": 1, "question": "Сводка"},
+        headers={"X-API-Key": "test-secret-key"},
+    )
+
+    assert response.status_code == 200
+    assert "answer" in response.json()

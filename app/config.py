@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     main_api_url: str = Field(..., description="URL публичного API основного проекта")
     main_api_timeout: float = 10.0
 
+    # API key для POST /chat.
+    # Пусто — endpoint открыт (dev и публичное демо).
+    # Задано — требуется header X-API-Key. См. SECURITY.md.
+    api_key: str = ""
+
     # Redis (rate limit, кэш)
     redis_url: str = ""
 
