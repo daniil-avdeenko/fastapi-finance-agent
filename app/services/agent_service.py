@@ -57,25 +57,30 @@ async def process_question(
     chat_id: int,
     question: str,
     use_history: bool = True,
+    intent: str | None = None,
+    params: dict[str, Any] | None = None,
 ) -> AgentResult:
     """
     Прогоняет вопрос через граф агента и сохраняет пару в Message.
 
-    use_history=False отключает подкладывание предыдущих сообщений в промпт
-    understand. Нужно для inline-кнопок.
+    intent/params — если заданы, understand_node пропускается (быстрый путь
+    для quick actions).
     """
     started = time.perf_counter()
 
     history = await _load_history(session, chat_id) if use_history else []
 
+    initial_state: dict[str, Any] = {
+        "question": question,
+        "chat_id": chat_id,
+        "history": history,
+    }
+    if intent is not None:
+        initial_state["intent"] = intent
+        initial_state["params"] = params or {}
+
     graph = get_graph()
-    result = await graph.ainvoke(
-        {
-            "question": question,
-            "chat_id": chat_id,
-            "history": history,
-        }
-    )
+    result = await graph.ainvoke(initial_state)
 
     latency_ms = int((time.perf_counter() - started) * 1000)
 
