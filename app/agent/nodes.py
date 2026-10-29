@@ -14,8 +14,11 @@ from app.agent.formatters import (
     _extract_json,
     _format_aggregate_plain,
     _format_compare_plain,
+    _format_currencies_plain,
     _format_profit_plain,
     _format_profitability_plain,
+    _format_projects_plain,
+    _format_summary_plain,
     _format_top_projects_plain,
     _format_transactions_plain,
     _humanize_error,
@@ -164,6 +167,24 @@ async def format_answer_node(state: AgentState) -> dict[str, Any]:
             parts.append(period)
         suffix = f" ({', '.join(parts)})" if parts else ""
         return {"answer": f"Транзакций: {count}{suffix}."}
+
+    if intent == "summary":
+        formatted = _format_summary_plain(state.get("data"))
+        if formatted is not None:
+            return {"answer": formatted}
+        return {"answer": "В данных нет информации."}
+
+    if intent == "projects":
+        formatted = _format_projects_plain(state.get("data"))
+        if formatted is not None:
+            return {"answer": formatted}
+        return {"answer": "В данных нет информации."}
+
+    if intent == "currencies":
+        formatted = _format_currencies_plain(state.get("data"))
+        if formatted is not None:
+            return {"answer": formatted}
+        return {"answer": "В данных нет информации."}
 
     # Явный «не понял» вместо попытки пересказать пустые данные.
     if intent == "unknown":

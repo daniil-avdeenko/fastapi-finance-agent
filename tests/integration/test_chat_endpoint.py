@@ -18,17 +18,19 @@ from app.models.message import Message
 
 @pytest.fixture
 def mock_agent(monkeypatch: pytest.MonkeyPatch) -> MockLLM:
-    """Подменяет LLM и tools — детерминированный прогон без сети."""
+    """
+    Подменяет LLM и tools — детерминированный прогон без сети.
+    """
     llm = MockLLM(
         responses=[
-            '{"intent": "summary", "params": {}}',
+            '{"intent": "project_detail", "params": {"project_id": 1}}',
             "Доходы 100 ₽, расходы 40 ₽.",
         ]
     )
     monkeypatch.setattr(nodes, "get_llm", lambda: llm)
 
     async def fake_dispatch(intent: str, params: dict[str, Any]) -> Any:
-        return {"income": 100, "expense": 40}
+        return {"id": 1, "name": "Проект 1", "income": 100, "expense": 40}
 
     monkeypatch.setattr(nodes, "dispatch", fake_dispatch)
     return llm
