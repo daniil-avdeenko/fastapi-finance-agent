@@ -32,9 +32,11 @@ logger = logging.getLogger(__name__)
 
 async def understand_node(state: AgentState) -> dict[str, Any]:
     """LLM разбирает вопрос → intent + params, учитывая историю."""
+    if state.get("intent"):
+        return {}
+
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     system = UNDERSTAND_SYSTEM_PROMPT.replace("{today}", today)
-
     history = state.get("history") or []
     if history:
         lines = ["ИСТОРИЯ ДИАЛОГА (последние вопросы):"]

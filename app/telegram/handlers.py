@@ -4,10 +4,14 @@
 Текстовые сообщения идут напрямую в agent_service — без HTTP-хопа
 на собственный /chat. Одна сессия SQLAlchemy на запрос, тот же
 process_question, что и в HTTP-роуте.
+
+Быстрые действия (inline-кнопки) передают intent и params явно —
+understand_node пропускается, LLM не вызывается (~2-4 секунды экономии).
 """
 
 import logging
 from html import escape
+from typing import Any
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -15,7 +19,11 @@ from aiogram.types import CallbackQuery, Message
 
 from app.db import SessionLocal
 from app.services.agent_service import process_question
-from app.telegram.keyboards import QUICK_ACTIONS, start_keyboard
+from app.telegram.keyboards import (
+    QUICK_ACTION_INTENTS,
+    QUICK_ACTIONS,
+    start_keyboard,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +52,8 @@ async def _ask_agent(
     chat_id: int,
     question: str,
     use_history: bool = True,
+    intent: str | None = None,
+    params: dict[str, Any] | None = None,
 ) -> None:
     """Общий путь: typing → process_question → ответ."""
     await bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -55,6 +65,8 @@ async def _ask_agent(
                 chat_id=chat_id,
                 question=question,
                 use_history=use_history,
+                intent=intent,
+                params=params,
             )
         except Exception:
             logger.exception("agent call failed")
@@ -115,10 +127,13 @@ async def handle_quick_action(callback: CallbackQuery) -> None:
         await callback.message.answer(HELP_TEXT)
         return
 
+    intent, params = QUICK_ACTION_INTENTS[action]
     await _ask_agent(
         bot=callback.bot,
         answer_to=callback.message,
         chat_id=callback.message.chat.id,
         question=QUICK_ACTIONS[action],
         use_history=False,
+        intent=intent,
+        params=params,
     )
