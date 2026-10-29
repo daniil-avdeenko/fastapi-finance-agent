@@ -310,15 +310,19 @@ def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
     if not isinstance(items, list) or not items:
         return None
 
-    project_name = items[0].get("project_name") or ""
+    # Если все транзакции из одного проекта — выносим имя в заголовок.
+    project_names = {tx.get("project_name") for tx in items if tx.get("project_name")}
+    is_single_project = len(project_names) <= 1
+    single_name = next(iter(project_names)) if is_single_project and project_names else ""
+
     period = _human_period(
         params.get("date_from") or "",
         params.get("date_to") or "",
     )
 
     header_parts: list[str] = []
-    if project_name:
-        header_parts.append(project_name)
+    if single_name:
+        header_parts.append(single_name)
     if period:
         header_parts.append(period)
 
@@ -340,7 +344,12 @@ def _format_transactions_plain(data: Any, params: dict[str, Any]) -> str | None:
 
         tx_date = (tx.get("date") or "")[:10]
         date_prefix = f"{_human_date(tx_date)} — " if tx_date else ""
-        lines.append(f"• {date_prefix}{tx_type}: {category} — {amount_str} ₽")
+
+        if is_single_project:
+            lines.append(f"• {date_prefix}{tx_type}: {category} — {amount_str} ₽")
+        else:
+            project = tx.get("project_name") or "—"
+            lines.append(f"• {date_prefix}{project} — {tx_type}: {category} — {amount_str} ₽")
 
     if len(items) > len(shown):
         lines.append("")
@@ -604,5 +613,116 @@ def _format_compare_plain(data: Any) -> str | None:
             )
             if line:
                 lines.append(f"• {line}")
+
+    return format_numbers("\n".join(lines))
+
+
+# ============================================================
+#   Месяцы в родительном падеже
+# ============================================================
+
+_MONTH_NAMES_GENITIVE = [
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+]
+
+
+def _human_date_full(iso: str) -> str:
+    """'2026-10-15' → '15 октября 2026'."""
+    try:
+        year, month, day = iso[:10].split("-")
+        idx = int(month) - 1
+        if 0 <= idx < 12:
+            return f"{int(day)} {_MONTH_NAMES_GENITIVE[idx]} {year}"
+        return iso
+    except (ValueError, AttributeError):
+        return iso
+
+
+def _format_summary_plain(data: Any) -> str | None:
+    """Собирает ответ для intent='summary' без LLM."""
+    if not isinstance(data, dict):
+        return None
+    if data.get("total_projects") is None:
+        return None
+
+    period_data = data.get("period") or {}
+    date_from = (period_data.get("date_from") or "")[:10]
+    date_to = (period_data.get("date_to") or "")[:10]
+
+    if not date_from and not date_to:
+        header = "Итоги за всё время:"
+    else:
+        header = f"Итоги за {_human_period(date_from, date_to)}:"
+
+    lines = [header]
+    total_income = data.get("total_income")
+    total_expense = data.get("total_expense")
+    total_profit = data.get("total_profit")
+    profitability = data.get("overall_profitability")
+
+    if total_income is not None:
+        lines.append(f"• Доход: {total_income} ₽")
+    if total_expense is not None:
+        lines.append(f"• Расход: {total_expense} ₽")
+    if total_profit is not None:
+        lines.append(f"• Прибыль: {total_profit} ₽")
+    if profitability is not None:
+        lines.append(f"• Рентабельность: {profitability}%")
+
+    return format_numbers("\n".join(lines))
+
+
+def _format_projects_plain(data: Any) -> str | None:
+    """Собирает ответ для intent='projects' без LLM."""
+    if not isinstance(data, dict):
+        return None
+    items = data.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+
+    lines = ["Список проектов:", ""]
+    for p in items:
+        name = p.get("name") or "—"
+        profit = p.get("profit")
+        profitability = p.get("profitability")
+        if profit is not None and profitability is not None:
+            lines.append(f"• {name} — прибыль: {profit} ₽, рентабельность: {profitability}%")
+        elif profit is not None:
+            lines.append(f"• {name} — прибыль: {profit} ₽")
+        else:
+            lines.append(f"• {name}")
+
+    return format_numbers("\n".join(lines))
+
+
+def _format_currencies_plain(data: Any) -> str | None:
+    """Собирает ответ для intent='currencies' без LLM."""
+    if not isinstance(data, dict):
+        return None
+    rates = data.get("rates")
+    if not isinstance(rates, dict) or not rates:
+        return None
+
+    first = next(iter(rates.values()))
+    rate_date = first.get("rate_date") if isinstance(first, dict) else None
+    header = f"Курсы валют на {_human_date_full(rate_date[:10])}:" if rate_date else "Курсы валют:"
+
+    lines = [header]
+    for code in sorted(rates.keys()):
+        r = rates[code]
+        rate_rub = r.get("rate_rub") if isinstance(r, dict) else None
+        if rate_rub is not None:
+            lines.append(f"• {code} — {rate_rub} ₽")
 
     return format_numbers("\n".join(lines))

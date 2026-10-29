@@ -197,24 +197,25 @@ async def test_query_data_handles_unexpected_error(monkeypatch: pytest.MonkeyPat
 
 
 async def test_format_answer_uses_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    llm = MockLLM(responses=["Доходы — 100 ₽, расходы — 40 ₽."])
+    llm = MockLLM(responses=["Детали проекта X: ..."])
     monkeypatch.setattr(nodes, "get_llm", lambda: llm)
 
     result = await nodes.format_answer_node(
-        {"question": "Как дела?", "intent": "summary", "data": {"income": 100, "expense": 40}}
+        {"question": "Детали проекта 1", "intent": "project_detail", "data": {"id": 1}}
     )
 
-    assert result["answer"] == "Доходы — 100 ₽, расходы — 40 ₽."
+    assert result["answer"] == "Детали проекта X: ..."
     _, user_msg = llm.calls[0]
-    assert "100" in user_msg
-    assert "Как дела?" in user_msg
+    assert "Детали проекта 1" in user_msg
 
 
 async def test_format_answer_formats_numbers(monkeypatch: pytest.MonkeyPatch) -> None:
     llm = MockLLM(responses=["Доход составил 1234567.89 RUB"])
     monkeypatch.setattr(nodes, "get_llm", lambda: llm)
 
-    result = await nodes.format_answer_node({"question": "q", "intent": "summary", "data": {}})
+    result = await nodes.format_answer_node(
+        {"question": "q", "intent": "project_detail", "data": {"id": 1}}
+    )
 
     assert result["answer"] == "Доход составил 1 234 567.89 RUB"
 
@@ -235,6 +236,21 @@ async def test_format_answer_short_circuits_on_unknown(
 
     assert "Не понял вопрос" in result["answer"]
     assert "Прибыль" in result["answer"]
+
+
+async def test_understand_skips_when_intent_preset(monkeypatch) -> None:
+    """Если intent задан вызывающим — LLM не вызывается."""
+
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться, если intent уже задан")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.understand_node(
+        {"question": "q", "chat_id": 1, "intent": "summary", "params": {}}
+    )
+
+    assert result == {}
 
 
 async def test_format_answer_short_circuits_on_error(
@@ -261,7 +277,9 @@ async def test_format_answer_handles_llm_error(
 
     monkeypatch.setattr(nodes, "get_llm", lambda: BrokenLLM())
 
-    result = await nodes.format_answer_node({"question": "q", "intent": "summary", "data": {}})
+    result = await nodes.format_answer_node(
+        {"question": "q", "intent": "project_detail", "data": {"id": 1}}
+    )
 
     assert "превышено" in result["answer"].lower()
 
@@ -477,6 +495,85 @@ async def test_format_answer_compare_uses_python_formatter(
     assert "1 000 ₽ → 1 200 ₽ (+200 ₽, +20%)" in result["answer"]
 
 
+async def test_format_answer_summary_uses_python_formatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться для summary")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {
+            "question": "Сводка",
+            "intent": "summary",
+            "data": {
+                "period": {"date_from": None, "date_to": None},
+                "total_projects": 3,
+                "total_income": 1000.0,
+                "total_expense": 400.0,
+                "total_profit": 600.0,
+                "overall_profitability": 60.0,
+            },
+        }
+    )
+
+    assert "Итоги за всё время:" in result["answer"]
+    assert "• Доход: 1 000 ₽" in result["answer"]
+    assert "• Прибыль: 600 ₽" in result["answer"]
+
+
+async def test_format_answer_projects_uses_python_formatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться для projects")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {
+            "question": "Проекты",
+            "intent": "projects",
+            "data": {
+                "items": [
+                    {"name": "Проект A", "profit": 1000.0, "profitability": 25.0},
+                ],
+                "count": 1,
+            },
+        }
+    )
+
+    assert "Список проектов:" in result["answer"]
+    assert "• Проект A — прибыль: 1 000 ₽, рентабельность: 25%" in result["answer"]
+
+
+async def test_format_answer_currencies_uses_python_formatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom() -> Any:
+        raise AssertionError("LLM не должен вызываться для currencies")
+
+    monkeypatch.setattr(nodes, "get_llm", boom)
+
+    result = await nodes.format_answer_node(
+        {
+            "question": "Курсы",
+            "intent": "currencies",
+            "data": {
+                "rates": {
+                    "USD": {"rate_date": "2026-10-15", "rate_rub": 84.5},
+                    "EUR": {"rate_date": "2026-10-15", "rate_rub": 97.3},
+                }
+            },
+        }
+    )
+
+    assert "Курсы валют на 15 октября 2026:" in result["answer"]
+    assert "• EUR — 97,30 ₽" in result["answer"]
+    assert "• USD — 84,50 ₽" in result["answer"]
+
+
 async def test_format_answer_count_intent(monkeypatch: pytest.MonkeyPatch) -> None:
     result = await nodes.format_answer_node(
         {
@@ -517,11 +614,12 @@ async def test_format_answer_humanizes_empty_timeout(monkeypatch: pytest.MonkeyP
 
     class BrokenLLM:
         async def chat(self, system: str, user: str) -> str:
-            # httpx сам формирует исключение с пустым str() — воспроизводим.
             raise httpx.ConnectTimeout("")
 
     monkeypatch.setattr(nodes, "get_llm", lambda: BrokenLLM())
 
-    result = await nodes.format_answer_node({"question": "q", "intent": "summary", "data": {}})
+    result = await nodes.format_answer_node(
+        {"question": "q", "intent": "project_detail", "data": {"id": 1}}
+    )
 
     assert "превышено" in result["answer"].lower()

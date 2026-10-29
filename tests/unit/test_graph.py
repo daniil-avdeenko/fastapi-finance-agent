@@ -14,7 +14,7 @@ def mock_agent(monkeypatch: pytest.MonkeyPatch) -> MockLLM:
     """Подменяет LLM и tools в узлах графа на предсказуемые."""
     llm = MockLLM(
         responses=[
-            '{"intent": "summary", "params": {}}',
+            '{"intent": "project_detail", "params": {"project_id": 1}}',
             "Доходы 100 ₽, расходы 40 ₽, прибыль 60 ₽.",
         ]
     )
@@ -31,9 +31,9 @@ async def test_graph_end_to_end(mock_agent: MockLLM) -> None:
     """Линейный прогон: вопрос → understand → query_data → format_answer."""
     graph = build_graph()
 
-    result = await graph.ainvoke({"question": "Как финансы?", "chat_id": 1})
+    result = await graph.ainvoke({"question": "Детали проекта 1", "chat_id": 1})
 
-    assert result["intent"] == "summary"
+    assert result["intent"] == "project_detail"
     assert result["data"] == {"income": 100, "expense": 40}
     assert "Доходы 100" in result["answer"]
 
@@ -42,7 +42,7 @@ async def test_graph_handles_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ошибка tool не роняет граф — format_answer отдаёт нейтральный текст."""
     from app.agent.tools import MainAPIError
 
-    llm = MockLLM(responses=['{"intent": "summary", "params": {}}', "unused"])
+    llm = MockLLM(responses=['{"intent": "project_detail", "params": {"project_id": 1}}', "unused"])
     monkeypatch.setattr(nodes, "get_llm", lambda: llm)
 
     async def failing_dispatch(intent: str, params: dict[str, Any]) -> Any:

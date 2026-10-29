@@ -89,10 +89,14 @@ async def test_handle_question_calls_agent_service(
         chat_id: int,
         question: str,
         use_history: bool = True,
+        intent: str | None = None,
+        params: dict | None = None,
     ) -> AgentResult:
         captured["chat_id"] = chat_id
         captured["question"] = question
         captured["use_history"] = use_history
+        captured["intent"] = intent
+        captured["params"] = params
         return AgentResult(answer="Сводка готова", llm_provider="mock", latency_ms=42)
 
     monkeypatch.setattr(handlers, "process_question", fake_process)
@@ -106,6 +110,8 @@ async def test_handle_question_calls_agent_service(
         "chat_id": 99,
         "question": "Какие доходы?",
         "use_history": True,
+        "intent": None,
+        "params": None,
     }
     message.bot.send_chat_action.assert_awaited_once()
     message.answer.assert_awaited_once_with("Сводка готова")
@@ -116,7 +122,15 @@ async def test_handle_question_reports_errors(
 ) -> None:
     """Падение агента не уходит наружу — пользователь получает текст."""
 
-    async def failing_process(session: Any, *, chat_id: int, question: str) -> AgentResult:
+    async def failing_process(
+        session: Any,
+        *,
+        chat_id: int,
+        question: str,
+        use_history: bool = True,
+        intent: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> AgentResult:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(handlers, "process_question", failing_process)
@@ -162,10 +176,14 @@ async def test_quick_action_summary(monkeypatch) -> None:
     """Кнопка «Сводка» отправляет вопрос в граф без контекста."""
     captured = {}
 
-    async def fake_process(session, *, chat_id, question, use_history=True):
+    async def fake_process(
+        session, *, chat_id, question, use_history=True, intent=None, params=None
+    ):
         captured["chat_id"] = chat_id
         captured["question"] = question
         captured["use_history"] = use_history
+        captured["intent"] = intent
+        captured["params"] = params
         return AgentResult(answer="ok", llm_provider="mock", latency_ms=10)
 
     monkeypatch.setattr(handlers, "process_question", fake_process)
@@ -175,7 +193,8 @@ async def test_quick_action_summary(monkeypatch) -> None:
     await handlers.handle_quick_action(callback)
 
     assert captured["chat_id"] == 42
-    assert captured["question"] == "Сводка по финансам"
+    assert captured["intent"] == "summary"
+    assert captured["params"] == {}
     assert captured["use_history"] is False
     callback.message.answer.assert_awaited_once_with("ok")
 
@@ -202,7 +221,13 @@ async def test_handle_question_escapes_html(monkeypatch: pytest.MonkeyPatch) -> 
     """HTML в ответе агента экранируется — иначе Telegram отвергает сообщение."""
 
     async def fake_process(
-        session: Any, *, chat_id: int, question: str, use_history: bool = True
+        session: Any,
+        *,
+        chat_id: int,
+        question: str,
+        use_history: bool = True,
+        intent: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> AgentResult:
         return AgentResult(
             answer="Проект <Ромашка> & Ко",
@@ -217,3 +242,45 @@ async def test_handle_question_escapes_html(monkeypatch: pytest.MonkeyPatch) -> 
     await handlers.handle_question(message)
 
     message.answer.assert_awaited_once_with("Проект &lt;Ромашка&gt; &amp; Ко")
+
+
+async def test_quick_action_profit_uses_known_intent(monkeypatch) -> None:
+    """Кнопка «Прибыль» передаёт intent='profit' без LLM-классификации."""
+    captured = {}
+
+    async def fake_process(
+        session, *, chat_id, question, use_history=True, intent=None, params=None
+    ):
+        captured["intent"] = intent
+        captured["params"] = params
+        return AgentResult(answer="ok", llm_provider="mock", latency_ms=10)
+
+    monkeypatch.setattr(handlers, "process_question", fake_process)
+    monkeypatch.setattr(handlers, "SessionLocal", _FakeSession)
+
+    callback = make_callback("ask:profit", chat_id=1)
+    await handlers.handle_quick_action(callback)
+
+    assert captured["intent"] == "profit"
+    assert captured["params"] == {}
+
+
+async def test_quick_action_transactions_passes_per_page(monkeypatch) -> None:
+    """Кнопка «Транзакции» запрашивает последние 15 без фильтра проекта."""
+    captured = {}
+
+    async def fake_process(
+        session, *, chat_id, question, use_history=True, intent=None, params=None
+    ):
+        captured["intent"] = intent
+        captured["params"] = params
+        return AgentResult(answer="ok", llm_provider="mock", latency_ms=10)
+
+    monkeypatch.setattr(handlers, "process_question", fake_process)
+    monkeypatch.setattr(handlers, "SessionLocal", _FakeSession)
+
+    callback = make_callback("ask:transactions", chat_id=1)
+    await handlers.handle_quick_action(callback)
+
+    assert captured["intent"] == "transactions"
+    assert captured["params"] == {"per_page": 15}

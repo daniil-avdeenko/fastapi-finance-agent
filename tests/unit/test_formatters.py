@@ -597,3 +597,29 @@ def test_format_compare_plain_income() -> None:
 
 def test_format_compare_plain_empty_returns_none() -> None:
     assert formatters._format_compare_plain(None) is None
+
+
+def test_format_transactions_plain_mixed_projects() -> None:
+    """При смешанных проектах проект выводится в каждой строке."""
+    data = {
+        "items": [
+            {
+                "type": "income",
+                "category_name": "Услуги",
+                "amount_rub": 1000.0,
+                "project_name": "Проект А",
+            },
+            {
+                "type": "expense",
+                "category_name": "Налоги",
+                "amount_rub": 500.0,
+                "project_name": "Проект Б",
+            },
+        ],
+    }
+    result = formatters._format_transactions_plain(data, {})
+
+    assert result is not None
+    assert "Проект А — Доход: Услуги — 1 000 ₽" in result
+    assert "Проект Б — Расход: Налоги — 500 ₽" in result
+    assert "Транзакции:" in result

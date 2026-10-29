@@ -139,3 +139,33 @@ async def test_process_question_skips_history_when_disabled(db_session, monkeypa
     )
 
     assert captured["history"] == []
+
+
+async def test_process_question_with_intent_bypasses_understand(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Если intent передан явно — он попадает в state, understand пропускается."""
+    captured: dict[str, Any] = {}
+
+    class FakeGraph:
+        async def ainvoke(self, state: dict[str, Any]) -> dict[str, Any]:
+            captured.update(state)
+            return {
+                "answer": "ok",
+                "intent": state.get("intent"),
+                "params": state.get("params"),
+            }
+
+    monkeypatch.setattr(agent_service, "get_graph", lambda: FakeGraph())
+
+    result = await agent_service.process_question(
+        db_session,
+        chat_id=1,
+        question="Сводка",
+        intent="summary",
+        params={"per_page": 15},
+    )
+
+    assert captured["intent"] == "summary"
+    assert captured["params"] == {"per_page": 15}
+    assert result.answer == "ok"
